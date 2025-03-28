@@ -166,19 +166,135 @@ void simple_gemm(matrixA_t& A, matrixB_t& B, matrixC_t& C, scal_t scale_by = 1.0
     const idx_t m = nrows(A);
     const idx_t n = ncols(B);
     const idx_t k = ncols(A);
+    using T_res = type_t<matrixC_t>
     for (idx_t i = 0; i < m; i++)
     {
         for (idx_t j = 0; j < n; j++)
         {
-            float sum = 0;
+            T_res sum = T_res(0);
             for (idx_t l = 0; l < k; l++)
             {
-                sum += scale_by * float(A(i, l)) * float(B(l, j));
+                sum += scale_by * static_cast<T_res>(A(i, l)) * static_cast<T_res>(B(l, j));
             }
             C(i, j) -= sum;
         }
     }
     return;
+}
+template <
+    TLAPACK_MATRIX matrixA_t,  // e.g., float or half precision
+    TLAPACK_MATRIX matrixB_t,  // same type as A
+    TLAPACK_MATRIX matrixC_t,  // possibly higher or lower precision than A/B
+    TLAPACK_SCALAR scal_t,     // scalar type (could match or differ from A/B)
+    TLAPACK_MATRIX accum1_t,   // buffer 1 type (e.g., float, double, ...
+    TLAPACK_MATRIX accum2_t    // buffer 2 type (e.g., float, double, ...
+>
+void multistage_gemm(
+    matrixA_t& A,
+    matrixB_t& B,
+    matrixC_t& C,
+    accum1_t& buf1,
+    accum2_t& buf2,
+    int b,
+    int r,
+    scal_t scal1,
+    scal_t scal2
+)
+{
+    using idx_t   = size_type<matrixA_t>;
+
+    // Types for the various matrices/buffers.
+    // A and B share the same base type:
+    using T_AB   = type_t<matrixA_t>;
+    // The accumulators have their own types:
+    using T_buf1 = type_t<accum1_t>;
+    using T_buf2 = type_t<accum2_t>;
+    // And C might have a different base type:
+    using T_C    = type_t<matrixC_t>;
+    // Type of the scalar factors:
+    using T_scal = type_t<scal_t>;
+
+    // Dimensions
+    const idx_t n = ncols(B);  // columns in B
+    const idx_t k = ncols(A);  // "inner" dimension  (A is m-by-k, B is k-by-n)
+
+    // Number of top-level (b x b) blocks in n
+    int num_blocks_first = (int)(n / b);
+    // Number of second-level (r x r) tiles in each b-block
+    int num_blocks_second = (int)(b / r);
+
+    // Outer loop over top-level blocks, each b-by-b
+    for (int I = 0; I < num_blocks_first; I++)
+    {
+        int i0 = I * b;  // row offset for the top-level block
+
+        for (int J = 0; J < num_blocks_first; J++)
+        {
+            int j0 = J * b;  // column offset for the top-level block
+
+
+            for (int ii = 0; ii < b; ii++) {
+                for (int jj = 0; jj < b; jj++) {
+                    // Make sure we use T_buf2 for buf2's storage
+                    buf2(ii, jj) = T_buf2(0);
+                }
+            }
+
+            for (int x = 0; x < num_blocks_second; x++)
+            {
+                int x0 = x * r;
+                for (int y = 0; y < num_blocks_second; y++)
+                {
+                    int y0 = y * r;
+
+                    // 2a) Zero-out buf1 (the r-by-r product)
+                    for (int ii = 0; ii < r; ii++) {
+                        for (int jj = 0; jj < r; jj++) {
+                            // Use T_buf1 for buf1's storage
+                            buf1(ii, jj) = T_buf1(0);
+                        }
+                    }
+                    for (int ii = 0; ii < r; ii++)
+                    {
+                        for (int jj = 0; jj < r; jj++)
+                        {
+                            // We'll accumulate in T_buf1
+                            T_buf1 sum = T_buf1(0);
+                            for (int kk = 0; kk < k; kk++)
+                            {
+                                // Convert A/B elements to T_buf1 for the multiply
+                                T_buf1 a_val = static_cast<T_buf1>( A(i0 + x0 + ii, kk) );
+                                T_buf1 b_val = static_cast<T_buf1>( B(kk, j0 + y0 + jj) );
+                                sum += (a_val * b_val);
+                            }
+                            buf1(ii, jj) += sum;
+                        }
+                    }
+
+
+                    for (int ii = 0; ii < r; ii++) {
+                        for (int jj = 0; jj < r; jj++) {
+                            T_buf2 val1 = static_cast<T_buf2>( buf1(ii, jj) );
+                            T_buf2 alpha = static_cast<T_buf2>( scal1 );
+                            buf2(x0 + ii, y0 + jj) += (alpha * val1);
+                        }
+                    }
+
+                } // for (y)
+            } // for (x)
+
+            for (int ii = 0; ii < b; ii++)
+            {
+                for (int jj = 0; jj < b; jj++)
+                {
+                    T_C   val2 = static_cast<T_C>( buf2(ii, jj) );
+                    T_C   beta = static_cast<T_C>( scal2 );
+                    C(i0 + ii, j0 + jj) += (beta * val2);
+                }
+            }
+
+        } // for (J)
+    } // for (I)
 }
 
 

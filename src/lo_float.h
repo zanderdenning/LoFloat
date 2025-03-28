@@ -334,11 +334,11 @@ public:
 
 
 
-template<typename Derived, int len>
-class var_float_base : public lo_float_base<Derived> {
+// template<typename Derived, int len>
+// class var_float_base : public lo_float_base<Derived> {
 
-    private
-}
+//     private
+// }
 
       template <typename Derived>
 class float6_base : public lo_float_base<Derived> {
