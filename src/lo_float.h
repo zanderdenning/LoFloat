@@ -1,7 +1,6 @@
 /// @author Sudhanva Kulkarni
 /* This file contains code for software defined 6 bit and 4 bit floats. It is an extended version of Andrew Fitzgibbon's float8.h
 */
-//minimum cpp std is C++ 20
 #ifndef ML_DTYPES_FLOAT6_4_H_
 #define ML_DTYPES_FLOAT6_4_H_
 #define LEN 13  //this is the length  of the bitstring used for stochastic rounding
@@ -45,12 +44,11 @@ enum Rounding_Mode : uint8_t {
     RoundAwayFromZero = 2,
     StochasticRounding = 3,
     RoundToNearestOdd = 4
-}
+};
 
 
 namespace lo_float {
 namespace lo_float_internal {
-
 
     static std::uniform_int_distribution<int> distribution(0, (1<< LEN) - 1);
     static std::mt19937 mt(time(nullptr));
@@ -70,11 +68,10 @@ namespace lo_float_internal {
     class float4_e2m1; //nan at -0 no infs
     template<int p> class float4_p; //nan at -0, -inf at 0b1111 and +inf at 0b0111
 
-//add len for FP5, etc?
-template<typename Derived, std::unsigned_integral Underlying_type = uint8_t>
+
+template<typename Derived>
 class lo_float_base {
 protected:
-    using Signed_Underlying_Type = std::make_signed<UnderLying_type>::type; 
     struct ConstructFromRepTag {};
 
     // "Core" constructor storing rep_ in the base
@@ -243,36 +240,20 @@ private:
     //-----------------------------------------
     // Single shared 'rep_' in the base
     //-----------------------------------------
-    UnderLying_type rep_;
+    uint8_t rep_;
 
     // Helper for compare:
-    // static EIGEN_STRONG_INLINE EIGEN_DEVICE_FUNC std::pair<uint8_t, uint8_t>
-    // SignAndMagnitude(Derived x) {
-    //     const uint8_t x_abs_bits =
-    //         Eigen::numext::bit_cast<uint8_t>(Eigen::numext::abs(x));
-    //     const uint8_t x_bits = Eigen::numext::bit_cast<uint8_t>(x);
-    //     const uint8_t x_sign = x_bits ^ x_abs_bits;
-    //     return {x_sign, x_abs_bits};
-    // }
-
-    //generalized SignAnd Mag for generalized compare
-    static EIGEN_STRONG_INLINE EIGEN_DEVICE_FUNC std::pair<Underlying_type, UnderLying_type>
+    static EIGEN_STRONG_INLINE EIGEN_DEVICE_FUNC std::pair<uint8_t, uint8_t>
     SignAndMagnitude(Derived x) {
-        const UnderLying_type x_abs_bits = 
-            Eigen::numext::bit_cast<UnderLying_type>(Eigen::numext::abs(x));
-        const UnderLying_type x_bits = Eigen::numext::bit_cast<UnderLying_type>(x);
-        const UnderLying_type x_sign = x_bits ^ x_abs_bits;
+        const uint8_t x_abs_bits =
+            Eigen::numext::bit_cast<uint8_t>(Eigen::numext::abs(x));
+        const uint8_t x_bits = Eigen::numext::bit_cast<uint8_t>(x);
+        const uint8_t x_sign = x_bits ^ x_abs_bits;
         return {x_sign, x_abs_bits};
     }
 
-
-    // static EIGEN_STRONG_INLINE EIGEN_DEVICE_FUNC int8_t
-    // SignAndMagnitudeToTwosComplement(uint8_t sign, uint8_t magnitude) {
-    //     return magnitude ^ (static_cast<int8_t>(sign) < 0 ? -1 : 0);
-    // }
-
-    static EIGEN_STRONG_INLINE EIGEN_DEVICE_FUNC Signed_Underlying_Type
-    SignAndMagnitudeToTwosComplement(UnderLying_type sign, UnderLying_type magnitude) {
+    static EIGEN_STRONG_INLINE EIGEN_DEVICE_FUNC int8_t
+    SignAndMagnitudeToTwosComplement(uint8_t sign, uint8_t magnitude) {
         return magnitude ^ (static_cast<int8_t>(sign) < 0 ? -1 : 0);
     }
 
@@ -317,7 +298,6 @@ protected:
     {}
 
 public:
-    static Rounding_Mode round_mode; 
     // Inherit all base constructors
     using Base::Base;
 
@@ -331,14 +311,6 @@ public:
 
     
 };
-
-
-
-// template<typename Derived, int len>
-// class var_float_base : public lo_float_base<Derived> {
-
-//     private
-// }
 
       template <typename Derived>
 class float6_base : public lo_float_base<Derived> {
@@ -361,7 +333,6 @@ protected:
     {}
 
 public:
-static Rounding_Mode round_mode; 
     using Base::Base;
 
     explicit EIGEN_DEVICE_FUNC operator bool() const {
@@ -386,7 +357,6 @@ protected:
     {}
 
 public:
-static Rounding_Mode round_mode; 
 
     using Base::Base;
 
@@ -401,7 +371,7 @@ static Rounding_Mode round_mode;
 
 
         
-
+template<Rounding_Mode round_mode>
 class float8_e4m3fn : public float8_base<float8_e4m3fn> {
   // Exponent: 4, Mantissa: 3, bias: 7.
   // Extended range: no inf, NaN represented by 0bS111'1111.
@@ -429,13 +399,14 @@ class float8_e4m3fn : public float8_base<float8_e4m3fn> {
     return Compare(derived(), other) == Ordering::kEquivalent;
   }
   
-
+  Rounding_Mode rounding_mode = round_mode;
   
 
   
       
 };
 
+template<Rounding_Mode round_mode>
 class float8_e4m3b11fnuz : public float8_base<float8_e4m3b11fnuz> {
   // Exponent: 4, Mantissa: 3, bias: 11.
   // Extended range: no inf, NaN represented by 0b1000'0000.
@@ -443,6 +414,7 @@ class float8_e4m3b11fnuz : public float8_base<float8_e4m3b11fnuz> {
   using Base = float8_base<float8_e4m3b11fnuz>;
   friend class float8_base<float8_e4m3b11fnuz>;
   using Base::Base;
+
 
  public:
   explicit EIGEN_DEVICE_FUNC float8_e4m3b11fnuz(const float8_e5m2& f8)
@@ -456,6 +428,8 @@ class float8_e4m3b11fnuz : public float8_base<float8_e4m3b11fnuz> {
   template <int p>
   explicit EIGEN_DEVICE_FUNC float8_e4m3b11fnuz(const float8_ieee_p<p>& f8)
       : float8_e4m3b11fnuz(ConvertFrom(f8)) {}
+  
+  Rounding_Mode rounding_mode = round_mode;
 
 
 
@@ -464,6 +438,7 @@ class float8_e4m3b11fnuz : public float8_base<float8_e4m3b11fnuz> {
 // Legacy name used in XLA (TODO(jewillco): remove).
 using float8_e4m3b11 = float8_e4m3b11fnuz;
 
+template<Rounding_Mode round_mode>
 class float8_e4m3fnuz : public float8_base<float8_e4m3fnuz> {
   // 8-bit floating point with 3 bit mantissa.
   //
@@ -497,11 +472,14 @@ class float8_e4m3fnuz : public float8_base<float8_e4m3fnuz> {
   template <int p>
   explicit EIGEN_DEVICE_FUNC float8_e4m3fnuz(const float8_ieee_p<p>& f8)
       : float8_e4m3fnuz(ConvertFrom(f8)) {}
+  
+      Rounding_Mode rounding_mode = round_mode;
 
 
 
 };
 
+template<Rounding_Mode round_mode>
 class float8_e5m2 : public float8_base<float8_e5m2> {
   // Exponent: 5, Mantissa: 2, bias: 15.
   // IEEE 754.
@@ -522,9 +500,13 @@ class float8_e5m2 : public float8_base<float8_e5m2> {
   template <int p>
   explicit EIGEN_DEVICE_FUNC float8_e5m2(float8_ieee_p<p> f8)
       : float8_e5m2(ConvertFrom(f8)) {}
+    
+      Rounding_Mode rounding_mode = round_mode;
 
 };
 
+
+template<Rounding_Mode round_mode>
 class float8_e5m2fnuz : public float8_base<float8_e5m2fnuz> {
   // 8-bit floating point with 2 bit mantissa.
   //
@@ -558,13 +540,13 @@ class float8_e5m2fnuz : public float8_base<float8_e5m2fnuz> {
   template <int p>
   explicit EIGEN_DEVICE_FUNC float8_e5m2fnuz(const float8_ieee_p<p>& f8)
       : float8_e5m2fnuz(ConvertFrom(f8)) {}
-
+      Rounding_Mode rounding_mode = round_mode;
 
 
 
 };
 
-template <int p>
+template <int p, Rounding_Mode rounding_mode, int bias = >
 class float8_ieee_p : public float8_base<float8_ieee_p<p>> {
   // IEEE P3109 WG 8-bit floating point with p bits of precision.
   //
@@ -605,7 +587,7 @@ class float8_ieee_p : public float8_base<float8_ieee_p<p>> {
   template<int q>
   explicit EIGEN_DEVICE_FUNC float8_ieee_p(const float4_p<q>& f4)
       : float8_ieee_p(this->ConvertFrom(f4)) {}
-    
+      Rounding_Mode rounding_mode = round_mode;
   
    constexpr float8_ieee_p<p> operator-() const {
     // TODO: use isnan()
@@ -635,7 +617,7 @@ class float8_ieee_p : public float8_base<float8_ieee_p<p>> {
 
 
 
-
+        template<Rounding_Mode round_mode>
         class float6_e3m2 : public float6_base<float6_e3m2> {
             //1S3E2M, bias = 3, saturated rounding, no Inf or NaN
             private:
@@ -646,12 +628,14 @@ class float8_ieee_p : public float8_base<float8_ieee_p<p>> {
              public:
               explicit EIGEN_DEVICE_FUNC float6_e3m2(const float6_e2m3& f6)
                   : float6_e3m2(ConvertFrom(f6)) {}
+                  Rounding_Mode rounding_mode = round_mode;
 
               
 
 
         };
 
+        template<Rounding_Mode round_mode>
         class float6_e2m3 : public float6_base<float6_e2m3> {
             //1S3E2M, bias = 1, saturated rounding, no Inf or NaN
 
@@ -663,10 +647,10 @@ class float8_ieee_p : public float8_base<float8_ieee_p<p>> {
             public:
              explicit EIGEN_DEVICE_FUNC float6_e2m3(const float6_e3m2& f6)
                 : float6_e2m3(ConvertFrom(f6)) {}
-
+                Rounding_Mode rounding_mode = round_mode;
         };
 
-        template<int p>
+        template<int p, Rounding_Mode round_mode>
         class float6_p : public float6_base<float6_p<p>> {
             //1S(6-p)E(p-1)M, bias = 2^(6 - p) - 1 , Inf at 0x3F and 0x1F. NaN at 0x20
             private:
@@ -691,6 +675,8 @@ class float8_ieee_p : public float8_base<float8_ieee_p<p>> {
              float6_p<p> operator-(const float6_p<p>& other) const {
                 return Base::operator-(other);
              }
+
+             Rounding_Mode rounding_mode = round_mode;
   
 
         };
@@ -1956,7 +1942,7 @@ inline Bits Stochastic_Round(Bits bits, int roundoff) {
   Bits complement = (Bits{1} << (len)) - 1;
   Bits to_add = static_cast<Bits>(samp & complement); 
   Bits to_ret = bits + (to_add << (roundoff - len)); // Add random bits to the input bits
-  return to_ret;  
+  return to_ret;
 }
 
 template <typename Bits>
@@ -2029,7 +2015,7 @@ struct ConvertImpl<From, To, kSaturate, kTruncate,
 
 
 //need to change the bool to an enum to support other rounding modes
-  static EIGEN_DEVICE_FUNC inline To run(const From& from, bool stochastic) {
+  static EIGEN_DEVICE_FUNC inline To run(const From& from, Rounding_Mode round_mode) {
     // Shift bits to destination type, without sign bit.
     const bool from_sign_bit =
         Eigen::numext::bit_cast<FromBits>(from) >> (kFromBits - 1);
@@ -2082,7 +2068,11 @@ struct ConvertImpl<From, To, kSaturate, kTruncate,
           bits <<= kDigitShift;
         } else {
           if constexpr (!kTruncate) {
-            if(stochastic) {bits = Stochastic_Round(bits, -kDigitShift); }
+            
+            switch(round_mode){
+                case RoundToNearestEven :
+                bits = RoundToNe(bits, -kDigitShift);
+            } {bits = Stochastic_Round(bits, -kDigitShift); }
             
             else {bits = RoundBitsToNearestEven(bits, -kDigitShift); }
             
