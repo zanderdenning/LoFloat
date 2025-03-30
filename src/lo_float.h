@@ -23,6 +23,7 @@
 #include "tlapack/base/types.hpp"
 #include "tlapack/base/scalar_type_traits.hpp"
 #include  "eigen/Eigen/Core"  
+#include "fp_tools.hpp"
 
 #ifdef __has_include
 # if __has_include(<version>)
@@ -38,17 +39,18 @@
 
 
 
-enum Rounding_Mode : uint8_t {
-    RoundToNearestEven = 0,
-    RoundTowardsZero = 1,
-    RoundAwayFromZero = 2,
-    StochasticRounding = 3,
-    RoundToNearestOdd = 4
-};
 
 
 namespace lo_float {
+
+
+
+
+
+
 namespace lo_float_internal {
+
+
 
     static std::uniform_int_distribution<int> distribution(0, (1<< LEN) - 1);
     static std::mt19937 mt(time(nullptr));
@@ -615,6 +617,19 @@ class float8_ieee_p : public float8_base<float8_ieee_p<p>> {
 };
 
 
+template<lo_float::FloatingPointParams params>
+class float8_p : public float8_base<float8_p> {
+
+    private : 
+     using Base = float8_base<float8_p>;
+     friend class float8_base<float8_p>;
+     using Base::Base;
+
+     public :
+     explicit EIGEN_DEVICE_FUNC 
+}
+
+
 
 
         template<Rounding_Mode round_mode>
@@ -681,18 +696,20 @@ class float8_ieee_p : public float8_base<float8_ieee_p<p>> {
 
         };
 
+        template<Rounding_Mode round_mode>
         class float4_e2m1 : public float4_base<float4_e2m1> {
             private:
             using Base = float4_base<float4_e2m1>;
             friend class float4_base<float4_e2m1>;
             using Base::Base;
+            Rounding_Mode rounding_mode = round_mode;
 
 
 
 
         };
 
-        template<int p>
+        template<int p, Rouding_Mode round_mode>
         class float4_p : public float4_base<float4_p<p>> {
             //1S2E1M, bias = 2^(4 - p) - 1, Inf at 0xF and 0x7, NaN at 0x4
              private:
@@ -1518,33 +1535,33 @@ constexpr int MaxExponent10FromMaxExponentAndDigits(int max_exponent,
 
 namespace std {
 // Standard-library overrides.  Note that these are picked up by Eigen as well.
-template <>
-struct numeric_limits<lo_float::lo_float_internal::float8_e4m3fn>
+template <Rounding_Mode rm>
+struct numeric_limits<lo_float::lo_float_internal::float8_e4m3fn<rm>>
     : public lo_float::lo_float_internal::numeric_limits_float8_e4m3fn {};
 
-template <>
-struct numeric_limits<lo_float::lo_float_internal::float8_e4m3b11fnuz>
+template <Rounding_Mode rm>
+struct numeric_limits<lo_float::lo_float_internal::float8_e4m3b11fnuz<rm>>
     : public lo_float::lo_float_internal::numeric_limits_float8_e4m3b11fnuz {};
 
-template <>
-struct numeric_limits<lo_float::lo_float_internal::float8_e4m3fnuz>
+template <Rounding_Mode rm>
+struct numeric_limits<lo_float::lo_float_internal::float8_e4m3fnuz<rm>>
     : public lo_float::lo_float_internal::numeric_limits_float8_e4m3fnuz {};
 
-template <>
-struct numeric_limits<lo_float::lo_float_internal::float8_e5m2>
+template <Rounding_Mode rm>
+struct numeric_limits<lo_float::lo_float_internal::float8_e5m2<rm>>
     : public lo_float::lo_float_internal::numeric_limits_float8_e5m2 {};
 
 
-template <>
-struct numeric_limits<lo_float::lo_float_internal::float8_e5m2fnuz>
+template <Rounding_Mode rm>
+struct numeric_limits<lo_float::lo_float_internal::float8_e5m2fnuz<rm>>
     : public lo_float::lo_float_internal::numeric_limits_float8_e5m2fnuz {};
 
-template <int p>
-struct numeric_limits<lo_float::lo_float_internal::float8_ieee_p<p>>
+template <int p, Rounding_Mode rm>
+struct numeric_limits<lo_float::lo_float_internal::float8_ieee_p<p, rm>>
     : public lo_float::lo_float_internal::numeric_limits_float8_ieee_p<p> {};
 
 template <int p>
-struct numeric_limits<lo_float::lo_float_internal::float6_p<p>>
+struct numeric_limits<lo_float::lo_float_internal::float6_p<p, rm>>
     : public lo_float::lo_float_internal::numeric_limits_float6_p<p> {};
 
 template <int p>
