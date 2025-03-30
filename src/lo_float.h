@@ -1,9 +1,11 @@
 /// @author Sudhanva Kulkarni
-/* This file contains code for software defined 6 bit and 4 bit floats. It is an extended version of Andrew Fitzgibbon's float8.h
+/* This file contains code for software defined 6 bit and 4 bit floats. It follows the same software design as Andrew Fitzgibbon's float8.h and uses std::bitset instead of uint8
 */
 #ifndef ML_DTYPES_FLOAT6_4_H_
 #define ML_DTYPES_FLOAT6_4_H_
-#define LEN 13  //this is the length  of the bitstring used for stochastic rounding
+//#define STOCHASTIC_ROUND
+//#define STOCHASTIC_ARITH
+#define LEN 13  
 #include <random> 
 #include <ctime>
 #include <algorithm>
@@ -23,7 +25,6 @@
 #include "tlapack/base/types.hpp"
 #include "tlapack/base/scalar_type_traits.hpp"
 #include  "eigen/Eigen/Core"  
-#include "fp_tools.hpp"
 
 #ifdef __has_include
 # if __has_include(<version>)
@@ -41,16 +42,9 @@
 
 
 
+
 namespace lo_float {
-
-
-
-
-
-
 namespace lo_float_internal {
-
-
 
     static std::uniform_int_distribution<int> distribution(0, (1<< LEN) - 1);
     static std::mt19937 mt(time(nullptr));
@@ -280,7 +274,6 @@ private:
 
 template <typename Derived>
 class float4_base : public lo_float_base<Derived> {
- 
     private :
         friend class lo_float_base<Derived>;
         
@@ -359,7 +352,6 @@ protected:
     {}
 
 public:
-
     using Base::Base;
 
     explicit EIGEN_DEVICE_FUNC operator bool() const {
@@ -373,7 +365,7 @@ public:
 
 
         
-template<Rounding_Mode round_mode>
+
 class float8_e4m3fn : public float8_base<float8_e4m3fn> {
   // Exponent: 4, Mantissa: 3, bias: 7.
   // Extended range: no inf, NaN represented by 0bS111'1111.
@@ -401,14 +393,13 @@ class float8_e4m3fn : public float8_base<float8_e4m3fn> {
     return Compare(derived(), other) == Ordering::kEquivalent;
   }
   
-  Rounding_Mode rounding_mode = round_mode;
+
   
 
   
       
 };
 
-template<Rounding_Mode round_mode>
 class float8_e4m3b11fnuz : public float8_base<float8_e4m3b11fnuz> {
   // Exponent: 4, Mantissa: 3, bias: 11.
   // Extended range: no inf, NaN represented by 0b1000'0000.
@@ -416,7 +407,6 @@ class float8_e4m3b11fnuz : public float8_base<float8_e4m3b11fnuz> {
   using Base = float8_base<float8_e4m3b11fnuz>;
   friend class float8_base<float8_e4m3b11fnuz>;
   using Base::Base;
-
 
  public:
   explicit EIGEN_DEVICE_FUNC float8_e4m3b11fnuz(const float8_e5m2& f8)
@@ -430,8 +420,6 @@ class float8_e4m3b11fnuz : public float8_base<float8_e4m3b11fnuz> {
   template <int p>
   explicit EIGEN_DEVICE_FUNC float8_e4m3b11fnuz(const float8_ieee_p<p>& f8)
       : float8_e4m3b11fnuz(ConvertFrom(f8)) {}
-  
-  Rounding_Mode rounding_mode = round_mode;
 
 
 
@@ -440,7 +428,6 @@ class float8_e4m3b11fnuz : public float8_base<float8_e4m3b11fnuz> {
 // Legacy name used in XLA (TODO(jewillco): remove).
 using float8_e4m3b11 = float8_e4m3b11fnuz;
 
-template<Rounding_Mode round_mode>
 class float8_e4m3fnuz : public float8_base<float8_e4m3fnuz> {
   // 8-bit floating point with 3 bit mantissa.
   //
@@ -474,14 +461,11 @@ class float8_e4m3fnuz : public float8_base<float8_e4m3fnuz> {
   template <int p>
   explicit EIGEN_DEVICE_FUNC float8_e4m3fnuz(const float8_ieee_p<p>& f8)
       : float8_e4m3fnuz(ConvertFrom(f8)) {}
-  
-      Rounding_Mode rounding_mode = round_mode;
 
 
 
 };
 
-template<Rounding_Mode round_mode>
 class float8_e5m2 : public float8_base<float8_e5m2> {
   // Exponent: 5, Mantissa: 2, bias: 15.
   // IEEE 754.
@@ -502,13 +486,9 @@ class float8_e5m2 : public float8_base<float8_e5m2> {
   template <int p>
   explicit EIGEN_DEVICE_FUNC float8_e5m2(float8_ieee_p<p> f8)
       : float8_e5m2(ConvertFrom(f8)) {}
-    
-      Rounding_Mode rounding_mode = round_mode;
 
 };
 
-
-template<Rounding_Mode round_mode>
 class float8_e5m2fnuz : public float8_base<float8_e5m2fnuz> {
   // 8-bit floating point with 2 bit mantissa.
   //
@@ -542,13 +522,13 @@ class float8_e5m2fnuz : public float8_base<float8_e5m2fnuz> {
   template <int p>
   explicit EIGEN_DEVICE_FUNC float8_e5m2fnuz(const float8_ieee_p<p>& f8)
       : float8_e5m2fnuz(ConvertFrom(f8)) {}
-      Rounding_Mode rounding_mode = round_mode;
+
 
 
 
 };
 
-template <int p, Rounding_Mode rounding_mode, int bias = >
+template <int p>
 class float8_ieee_p : public float8_base<float8_ieee_p<p>> {
   // IEEE P3109 WG 8-bit floating point with p bits of precision.
   //
@@ -589,7 +569,7 @@ class float8_ieee_p : public float8_base<float8_ieee_p<p>> {
   template<int q>
   explicit EIGEN_DEVICE_FUNC float8_ieee_p(const float4_p<q>& f4)
       : float8_ieee_p(this->ConvertFrom(f4)) {}
-      Rounding_Mode rounding_mode = round_mode;
+    
   
    constexpr float8_ieee_p<p> operator-() const {
     // TODO: use isnan()
@@ -617,22 +597,9 @@ class float8_ieee_p : public float8_base<float8_ieee_p<p>> {
 };
 
 
-template<lo_float::FloatingPointParams params>
-class float8_p : public float8_base<float8_p> {
-
-    private : 
-     using Base = float8_base<float8_p>;
-     friend class float8_base<float8_p>;
-     using Base::Base;
-
-     public :
-     explicit EIGEN_DEVICE_FUNC 
-}
 
 
 
-
-        template<Rounding_Mode round_mode>
         class float6_e3m2 : public float6_base<float6_e3m2> {
             //1S3E2M, bias = 3, saturated rounding, no Inf or NaN
             private:
@@ -643,14 +610,12 @@ class float8_p : public float8_base<float8_p> {
              public:
               explicit EIGEN_DEVICE_FUNC float6_e3m2(const float6_e2m3& f6)
                   : float6_e3m2(ConvertFrom(f6)) {}
-                  Rounding_Mode rounding_mode = round_mode;
 
               
 
 
         };
 
-        template<Rounding_Mode round_mode>
         class float6_e2m3 : public float6_base<float6_e2m3> {
             //1S3E2M, bias = 1, saturated rounding, no Inf or NaN
 
@@ -662,10 +627,10 @@ class float8_p : public float8_base<float8_p> {
             public:
              explicit EIGEN_DEVICE_FUNC float6_e2m3(const float6_e3m2& f6)
                 : float6_e2m3(ConvertFrom(f6)) {}
-                Rounding_Mode rounding_mode = round_mode;
+
         };
 
-        template<int p, Rounding_Mode round_mode>
+        template<int p>
         class float6_p : public float6_base<float6_p<p>> {
             //1S(6-p)E(p-1)M, bias = 2^(6 - p) - 1 , Inf at 0x3F and 0x1F. NaN at 0x20
             private:
@@ -690,26 +655,22 @@ class float8_p : public float8_base<float8_p> {
              float6_p<p> operator-(const float6_p<p>& other) const {
                 return Base::operator-(other);
              }
-
-             Rounding_Mode rounding_mode = round_mode;
   
 
         };
 
-        template<Rounding_Mode round_mode>
         class float4_e2m1 : public float4_base<float4_e2m1> {
             private:
             using Base = float4_base<float4_e2m1>;
             friend class float4_base<float4_e2m1>;
             using Base::Base;
-            Rounding_Mode rounding_mode = round_mode;
 
 
 
 
         };
 
-        template<int p, Rouding_Mode round_mode>
+        template<int p>
         class float4_p : public float4_base<float4_p<p>> {
             //1S2E1M, bias = 2^(4 - p) - 1, Inf at 0xF and 0x7, NaN at 0x4
              private:
@@ -1535,33 +1496,33 @@ constexpr int MaxExponent10FromMaxExponentAndDigits(int max_exponent,
 
 namespace std {
 // Standard-library overrides.  Note that these are picked up by Eigen as well.
-template <Rounding_Mode rm>
-struct numeric_limits<lo_float::lo_float_internal::float8_e4m3fn<rm>>
+template <>
+struct numeric_limits<lo_float::lo_float_internal::float8_e4m3fn>
     : public lo_float::lo_float_internal::numeric_limits_float8_e4m3fn {};
 
-template <Rounding_Mode rm>
-struct numeric_limits<lo_float::lo_float_internal::float8_e4m3b11fnuz<rm>>
+template <>
+struct numeric_limits<lo_float::lo_float_internal::float8_e4m3b11fnuz>
     : public lo_float::lo_float_internal::numeric_limits_float8_e4m3b11fnuz {};
 
-template <Rounding_Mode rm>
-struct numeric_limits<lo_float::lo_float_internal::float8_e4m3fnuz<rm>>
+template <>
+struct numeric_limits<lo_float::lo_float_internal::float8_e4m3fnuz>
     : public lo_float::lo_float_internal::numeric_limits_float8_e4m3fnuz {};
 
-template <Rounding_Mode rm>
-struct numeric_limits<lo_float::lo_float_internal::float8_e5m2<rm>>
+template <>
+struct numeric_limits<lo_float::lo_float_internal::float8_e5m2>
     : public lo_float::lo_float_internal::numeric_limits_float8_e5m2 {};
 
 
-template <Rounding_Mode rm>
-struct numeric_limits<lo_float::lo_float_internal::float8_e5m2fnuz<rm>>
+template <>
+struct numeric_limits<lo_float::lo_float_internal::float8_e5m2fnuz>
     : public lo_float::lo_float_internal::numeric_limits_float8_e5m2fnuz {};
 
-template <int p, Rounding_Mode rm>
-struct numeric_limits<lo_float::lo_float_internal::float8_ieee_p<p, rm>>
+template <int p>
+struct numeric_limits<lo_float::lo_float_internal::float8_ieee_p<p>>
     : public lo_float::lo_float_internal::numeric_limits_float8_ieee_p<p> {};
 
 template <int p>
-struct numeric_limits<lo_float::lo_float_internal::float6_p<p, rm>>
+struct numeric_limits<lo_float::lo_float_internal::float6_p<p>>
     : public lo_float::lo_float_internal::numeric_limits_float6_p<p> {};
 
 template <int p>
@@ -1962,41 +1923,6 @@ inline Bits Stochastic_Round(Bits bits, int roundoff) {
   return to_ret;
 }
 
-template <typename Bits>
-inline Bits RoundBitsTowardsZero(Bits bits, int roundoff) {
-    // Round towards zero by just truncating the bits
-    //in bits FFF...FLRTT....T RTT....T needs to be rounded off, so just set  RTT..T to be 0
-    auto mask = ~((Bits{1} << roundoff) - 1);
-    return bits & mask;
-}
-
-
-template<typename Bits>
-inline Bits RoundBitsAwayFromZero(Bits bits, int roundoff) {
-    //Round away from Zero by truncating bits and adding one to the remaining bit pattern
-    // in bits FFF...FRTT...T, set RTT...T to be zero and add 1 to FFF...F
-    auto mask = ~((Bits{1} << roundoff) - 1);
-    Bits truncated = bits & mask;
-    return truncated + (bits > 0 ? Bits{1} << roundoff : 0);
-}
-
-template <typename Bits>
-constexpr inline Bits RoundBitsToNearestOdd(Bits bits, int roundoff) {
-    // Round to nearest odd by adding a bias term.
-    // Consider a bit pattern:
-    //   FFF...FLRTT...T,
-    // where bits RTT...T need to be rounded-off. We add a bias term to the
-    // bit pattern such that a carry is introduced to round up only if
-    // - L is 0, R is 1, OR
-    // - L is 1, R is 1, any T is one.
-    // This ensures the final result is odd.
-    
-    Bits bias = roundoff == 0
-                    ? 0
-                    : ((~bits >> roundoff) & 1) + (Bits{1} << (roundoff - 1)) - 1;
-    return bits + bias;
-}
-
 
 template <typename From, typename To, bool kSaturate, bool kTruncate>
 struct ConvertImpl<From, To, kSaturate, kTruncate,
@@ -2032,7 +1958,7 @@ struct ConvertImpl<From, To, kSaturate, kTruncate,
 
 
 //need to change the bool to an enum to support other rounding modes
-  static EIGEN_DEVICE_FUNC inline To run(const From& from, Rounding_Mode round_mode) {
+  static EIGEN_DEVICE_FUNC inline To run(const From& from, bool stochastic) {
     // Shift bits to destination type, without sign bit.
     const bool from_sign_bit =
         Eigen::numext::bit_cast<FromBits>(from) >> (kFromBits - 1);
@@ -2086,10 +2012,7 @@ struct ConvertImpl<From, To, kSaturate, kTruncate,
         } else {
           if constexpr (!kTruncate) {
             
-            switch(round_mode){
-                case RoundToNearestEven :
-                bits = RoundToNe(bits, -kDigitShift);
-            } {bits = Stochastic_Round(bits, -kDigitShift); }
+            if(stochastic) {bits = Stochastic_Round(bits, -kDigitShift); }
             
             else {bits = RoundBitsToNearestEven(bits, -kDigitShift); }
             
@@ -2201,23 +2124,32 @@ struct ConvertImpl<From, To, kSaturate, kTruncate,
 template <typename Derived>
 template <bool kSaturate, bool kTruncate, typename From>
 EIGEN_DEVICE_FUNC Derived lo_float_base<Derived>::ConvertFrom(const From& from) {
+  #ifdef STOCHASTIC_ROUND
+  return ConvertImpl<From, Derived, kSaturate, kTruncate>::run(from, true);
+  #else
   return ConvertImpl<From, Derived, kSaturate, kTruncate>::run(from, false);
+  #endif
 }
 
 template <typename Derived>
 template <typename To, bool kSaturate, bool kTruncate>
 EIGEN_DEVICE_FUNC To lo_float_base<Derived>::ConvertTo(const Derived& from) {
-
+   #ifdef STOCHASTIC_ROUND
+  return ConvertImpl<Derived, To, kSaturate, kTruncate>::run(from, true);
+  #else 
   return ConvertImpl<Derived, To, kSaturate, kTruncate>::run(from, false);
+  #endif
 
 }
 
 template <typename Derived>
 template <bool kSaturate, bool kTruncate>
 EIGEN_DEVICE_FUNC double lo_float_base<Derived>::ConvertTo(const Derived& from) {
-
+  #ifdef STOCHASTIC_ARITH
+  return ConvertImpl<Derived, double, kSaturate, kTruncate>::run(from, true);
+  #else 
   return ConvertImpl<Derived, double, kSaturate, kTruncate>::run(from, false);
-
+  #endif
 
 
 }
@@ -2225,9 +2157,11 @@ EIGEN_DEVICE_FUNC double lo_float_base<Derived>::ConvertTo(const Derived& from) 
 template <typename Derived>
 template <bool kSaturate, bool kTruncate>
 EIGEN_DEVICE_FUNC Derived lo_float_base<Derived>::ConvertFrom(const double& from) {
-
+  #ifdef STOCHASTIC_ARITH
+  return ConvertImpl<double, Derived, kSaturate, kTruncate>::run(from, true);
+  #else
   return ConvertImpl<double, Derived, kSaturate, kTruncate>::run(from, false);
-
+  #endif
 
 }
 
