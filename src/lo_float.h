@@ -21,8 +21,8 @@
 #include <ostream>
 #include <type_traits>
 #include "tlapack/base/types.hpp"
-#include "tlapack/base/scalar_type_traits.hpp"
-#include  "eigen/Eigen/Core"  
+// #include "tlapack/base/scalar_type_traits.hpp"
+// #include  "eigen/Eigen/Core"  
 #include "fp_tools.hpp"
 
 #ifdef __has_include
@@ -71,7 +71,7 @@ namespace lo_float_internal {
     template<int p> class float4_p; //nan at -0, -inf at 0b1111 and +inf at 0b0111
 
 
-template<typename Derived>
+template<typename Derived, typename UnderlyingType = uint8_t>
 class lo_float_base {
 protected:
     struct ConstructFromRepTag {};
@@ -242,21 +242,22 @@ private:
     //-----------------------------------------
     // Single shared 'rep_' in the base
     //-----------------------------------------
-    uint8_t rep_;
+    UnderlyingType rep_;
+    using Signed_type = typename std::make_signed<UnderlyingType>::type;
 
     // Helper for compare:
-    static EIGEN_STRONG_INLINE EIGEN_DEVICE_FUNC std::pair<uint8_t, uint8_t>
+    static EIGEN_STRONG_INLINE EIGEN_DEVICE_FUNC std::pair<UnderlyingType, UnderlyingType>
     SignAndMagnitude(Derived x) {
-        const uint8_t x_abs_bits =
-            Eigen::numext::bit_cast<uint8_t>(Eigen::numext::abs(x));
-        const uint8_t x_bits = Eigen::numext::bit_cast<uint8_t>(x);
-        const uint8_t x_sign = x_bits ^ x_abs_bits;
+        const UnderlyingType x_abs_bits =
+            Eigen::numext::bit_cast<UnderlyingType>(Eigen::numext::abs(x));
+        const UnderlyingType x_bits = Eigen::numext::bit_cast<UnderlyingType>(x);
+        const UnderlyingType x_sign = x_bits ^ x_abs_bits;
         return {x_sign, x_abs_bits};
     }
 
-    static EIGEN_STRONG_INLINE EIGEN_DEVICE_FUNC int8_t
-    SignAndMagnitudeToTwosComplement(uint8_t sign, uint8_t magnitude) {
-        return magnitude ^ (static_cast<int8_t>(sign) < 0 ? -1 : 0);
+    static EIGEN_STRONG_INLINE EIGEN_DEVICE_FUNC Signed_Type
+    SignAndMagnitudeToTwosComplement(UnderlyingType sign, UnderlyingType magnitude) {
+        return magnitude ^ (static_cast<Signed_type>(sign) < 0 ? -1 : 0);
     }
 
     // Compare function
@@ -270,8 +271,8 @@ private:
         if (lhs_mag == 0 && rhs_mag == 0) {
             return kEquivalent;
         }
-        int8_t lhs_tc = SignAndMagnitudeToTwosComplement(lhs_sign, lhs_mag);
-        int8_t rhs_tc = SignAndMagnitudeToTwosComplement(rhs_sign, rhs_mag);
+        Signed_type lhs_tc = SignAndMagnitudeToTwosComplement(lhs_sign, lhs_mag);
+        Signed_type rhs_tc = SignAndMagnitudeToTwosComplement(rhs_sign, rhs_mag);
         if (lhs_tc < rhs_tc) return kLess;
         if (lhs_tc > rhs_tc) return kGreater;
         return kEquivalent;
@@ -371,6 +372,64 @@ public:
 };
 
 
+//helper template to pick storage format
+template<int Len>
+using Base_repr_select = std::conditional_t<(Len <= 8), uint8_t, std::conditional_t<(Len <= 16), uint16_t, uint32_t>>;
+
+
+///hypothetical for varfloat
+template<FloatingPointParams Fp>
+class Var_lo_float : public lo_float_base<Var_lo_float, Base_repr_select<Fp.bitwidth>> {
+    private :
+        using UType = Base_repr_select<Fp.bitwidth>;
+        using Base = lo_float_base<Var_lo_float, UType>;
+        friend class Base;
+        using Base::Base;
+        using SType = std::make_signed<UType>::type;
+
+
+    static EIGEN_STRONG_INLINE EIGEN_DEVICE_FUNC Stype
+    SignAndMagnitudeToTwosComplement(UType sign, UType magnitude) {
+            return magnitude ^ (static_cast<Stype>(sign << Fp.Len) < 0 ? -1 : 0);
+    }
+
+    protected:
+        using typename Base::ConstructFromRepTag;
+
+        constexpr Var_lo_float(UType rep, ConstructFromRepTag tag)
+            : Base(rep, tag)
+        {}
+
+    public:
+        using Base::Base;
+
+        explicit EIGEN_DEVICE_FUNC operator bool() const {
+            return (this->rep() & ((1 << Fp.bitwidth) - 1)) != 0;
+        }
+        constexpr Derived operator-() const {
+            return Base::FromRep(static_cast<UType>(this->rep() ^ (1 << Fp.bitwidth)));
+        }
+        //declare structs/enums from template arg as static fields so that they can be accessed later
+        static NaNChecker IsNaNFunctor = Fp.IsNaN;
+
+        static InfChecker IsInfFunctor = Fp.IsInf;
+
+        sttaic Rounding_Mode round_mode = Fp.rounding_mode;
+
+        static Inf_Behaviors Overflow_behavior = Fp.OV_behavior;
+        static NaN_Behaviors NaN_behavior = Fp.NA_behavior;
+
+        static int bias = Fp.bias;
+
+        static int p = Fp.mantissa_bits;
+
+        static int float_length = Fp.bitwidth;
+
+};
+
+
+//For f8_e4m3fn, I would define the struct as follows-
+//FPParams(8, 3, 7, )
 
         
 template<Rounding_Mode round_mode>

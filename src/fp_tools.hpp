@@ -18,7 +18,7 @@ enum Rounding_Mode : uint8_t {
     RoundToNearestOdd = 4
 };
 
-enum Signed_Type : uint8_t {
+enum Signedness : uint8_t {
     Signed = 0,
     Unsigned = 1
 };
@@ -48,17 +48,40 @@ concept NaNChecker = requires(T t, uint32_t bits) {
     { t(bits) } -> std::convertible_to<bool>;
 };
 
-    //struct to define floating point params. You can specify bitwidth, #mantissa bits, #exp bits, signed or unsigned, 
-    template<InfChecker IsInfFunctor, NaNChecker IsNaNFunctor>
-    typedef struct {
-        int bitwidth;
-        int mantissa_bits;
-        Signed_Type signed;
-        int bias;
-        Rounding_Mode rounding_mode;
-        Inf_Behaviors OV_behavior;
-        NaN_Behaviors NA_behavior;
-        IsInfFunctor IsInf;
-        IsNaNFunctor IsNaN;
-    } FloatingPointParams;
+
+
+template<InfChecker IsInfFunctor, NaNChecker IsNaNFunctor>
+struct FloatingPointParams
+{
+    int bitwidth;
+    int mantissa_bits;
+    int bias;
+    Rounding_Mode rounding_mode;
+    Inf_Behaviors OV_behavior;
+    NaN_Behaviors NA_behavior;
+
+    IsInfFunctor IsInf;
+    IsNaNFunctor IsNaN;
+
+    constexpr FloatingPointParams(
+        int bw,
+        int mb,
+        int b,
+        Rounding_Mode rm,
+        Inf_Behaviors ovb,
+        NaN_Behaviors nab,
+        IsInfFunctor IsInf,
+        IsNANFunctor IsNaN
+    )
+      : bitwidth(bw)
+      , mantissa_bits(mb)
+      , bias(b)
+      , rounding_mode(rm)
+      , OV_behavior(ovb)
+      , NA_behavior(nab)
+      , IsInf(IsInf)
+      , IsNaN(IsNaN)
+    {}
+};
+
 }
