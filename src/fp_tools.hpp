@@ -33,12 +33,13 @@ enum NaN_Behaviors : uint8_t {
     HasQuietNaN = 0,
     NoNaN = 1,
     SignalingNaN = 2
-}
+};
 
 // Concept: "InfChecker" means a type T has operator()(uint64_t) -> bool
 template <typename T>
 concept InfChecker = requires(T t, uint32_t bits) {
     { t(bits) } -> std::convertible_to<bool>;  
+    { t.infBitPattern() } -> std::convertible_to<uint32_t>;
     // or -> std::same_as<bool>; if you require exactly bool
 };
 
@@ -46,6 +47,7 @@ concept InfChecker = requires(T t, uint32_t bits) {
 template <typename T>
 concept NaNChecker = requires(T t, uint32_t bits) {
     { t(bits) } -> std::convertible_to<bool>;
+    { t.nanBitPattern() } -> std::convertible_to<uint32_t>;
 };
 
 
@@ -59,7 +61,6 @@ struct FloatingPointParams
     Rounding_Mode rounding_mode;
     Inf_Behaviors OV_behavior;
     NaN_Behaviors NA_behavior;
-
     IsInfFunctor IsInf;
     IsNaNFunctor IsNaN;
 
@@ -71,7 +72,7 @@ struct FloatingPointParams
         Inf_Behaviors ovb,
         NaN_Behaviors nab,
         IsInfFunctor IsInf,
-        IsNANFunctor IsNaN
+        IsNaNFunctor IsNaN
     )
       : bitwidth(bw)
       , mantissa_bits(mb)
