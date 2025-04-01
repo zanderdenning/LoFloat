@@ -35,19 +35,34 @@ enum NaN_Behaviors : uint8_t {
     SignalingNaN = 2
 };
 
+enum SubNormal_Support : uint8_t {
+    Has_SubNormal_Support = 0,
+    No_SubNormal_Support = 1
+};
+
 // Concept: "InfChecker" means a type T has operator()(uint64_t) -> bool
 template <typename T>
 concept InfChecker = requires(T t, uint32_t bits) {
-    { t(bits) } -> std::convertible_to<bool>;  
+    // Must be callable with a uint32_t, returning something convertible to bool
+    { t(bits) } -> std::convertible_to<bool>;
+
+    // Must have an infBitPattern() that returns something convertible to uint32_t
     { t.infBitPattern() } -> std::convertible_to<uint32_t>;
-    // or -> std::same_as<bool>; if you require exactly bool
+
+    // Must have a minNegInf() method returning something convertible to uint32_t
+    { t.minNegInf() } -> std::convertible_to<uint32_t>;
+
+    // Must have a minPosInf() method returning something convertible to uint32_t
+    { t.minPosInf() } -> std::convertible_to<uint32_t>;
 };
 
 // Concept: "NaNChecker" means a type T has operator()(uint64_t) -> bool
 template <typename T>
 concept NaNChecker = requires(T t, uint32_t bits) {
     { t(bits) } -> std::convertible_to<bool>;
-    { t.nanBitPattern() } -> std::convertible_to<uint32_t>;
+    { t.qNanBitPattern() } -> std::convertible_to<uint32_t>;
+    { t.sNanBitPattern() } -> std::convertible_to<uint32_t>;
+
 };
 
 
@@ -61,6 +76,8 @@ struct FloatingPointParams
     Rounding_Mode rounding_mode;
     Inf_Behaviors OV_behavior;
     NaN_Behaviors NA_behavior;
+    Signedness is_signed;
+    SubNormal_Support SN_support;
     IsInfFunctor IsInf;
     IsNaNFunctor IsNaN;
 
@@ -71,6 +88,8 @@ struct FloatingPointParams
         Rounding_Mode rm,
         Inf_Behaviors ovb,
         NaN_Behaviors nab,
+        Signedness is_signed,
+        SubNormal_Support SN_sup,
         IsInfFunctor IsInf,
         IsNaNFunctor IsNaN
     )
@@ -80,6 +99,8 @@ struct FloatingPointParams
       , rounding_mode(rm)
       , OV_behavior(ovb)
       , NA_behavior(nab)
+      , is_signed(is_signed)
+      , SN_support(SN_sup)
       , IsInf(IsInf)
       , IsNaN(IsNaN)
     {}

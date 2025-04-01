@@ -454,7 +454,7 @@ class Var_lo_float : public lo_float_base<Derived, Base_repr_select<Fp.bitwidth>
 
         static constexpr InfChecker auto IsInfFunctor = Fp.IsInf;
 
-        static constexpr Rounding_Mode round_mode = Fp.rounding_mode;
+        static constexpr Rounding_Mode rounding_mode = Fp.rounding_mode;
 
         static constexpr  Inf_Behaviors Overflow_behavior = Fp.OV_behavior;
         static constexpr  NaN_Behaviors NaN_behavior = Fp.NA_behavior;
@@ -468,9 +468,27 @@ class Var_lo_float : public lo_float_base<Derived, Base_repr_select<Fp.bitwidth>
 };
 
 template<FloatingPointParams Fp>
-class Templated_Float : public Var_lo_float<Templated_Float, Fp> {
+class Templated_Float : public Var_lo_float<Templated_Float<Fp>, Fp> {
+ private:
+  using Templated_Float_Type = Templated_Float<Fp>;
+  using Base = lo_float_base<Templated_Float_Type>;
+  friend class lo_float_base<Templated_Float_Type>;
+  using Base::Base;
 
-}
+ public:
+  Templated_Float<Fp> operator-(const Templated_Float<Fp>& other) const {
+    return Base::operator-(other);
+  }
+
+  constexpr Templated_Float<Fp> operator-() const {
+    // TODO: use isnan()
+    if ((this->rep() & ((1 << Fp.bitwidth) - 1)) == 0x00) {
+      return *this;
+    }
+    return Base::operator-();
+  }
+
+};
 
 
 //For f8_e4m3fn, I would define the struct as follows-
@@ -1702,20 +1720,66 @@ template<FloatingPointParams Fp>
 struct numeric_limits_flexible {
 
     static inline constexpr const bool is_specialized = true;
-    static inline constexpr const bool is_signed = true;
+    static inline constexpr const bool is_signed = Fp.is_signed == lo_float::Signedness::Signed;
     static inline constexpr const bool is_integer = false;
     static inline constexpr const bool is_exact = false;
-    static inline constexpr const bool has_quiet_NaN = true;
-    static inline constexpr const bool has_signaling_NaN = ;
-    static inline constexpr const bool has_denorm = true;
+    static inline constexpr const bool has_quiet_NaN = Fp.NA_behavior == lo_float::NaN_Behaviors::HasQuietNaN;
+    static inline constexpr const bool has_signaling_NaN = Fp.NA_behavior == lo_float::NaN_Behaviors::SignalingNaN;
+    static inline constexpr const bool has_denorm = Fp.SN_support == lo_float::SubNormal_Support::Has_SubNormal_Support;
     static inline constexpr const bool has_denorm_loss = false;
     static inline constexpr const bool round_style = std::round_to_nearest;
     static inline constexpr const bool is_iec559 = false;
     static inline constexpr const int radix = std::numeric_limits<float>::radix;
-    static inline constexpr const bool traps = std::numeric_limits<float>::traps;
-    static inline constexpr const bool tinyness_before = std::numeric_limits<float>::tinyness_before;
+    static inline constexpr const bool traps = false;
+    static inline constexpr const bool tinyness_before = true;
+    static inline constexpr const int kExponentBias = Fp.bias;
+    static inline constexpr const int kMantissaBits = Fp.mantissa_bits;
+    static inline constexpr const int digits = Fp.mantissa_bits + 1;
+    static inline constexpr const int digits10 = Digits10FromDigits(digits);
+    static inline constexpr const int max_digits10 =
+        MaxDigits10FromDigits(digits);
+    static inline constexpr const int min_exponent = (1 - kExponentBias);
+    static inline constexpr const int min_exponent10 =
+        MinExponent10FromMinExponent(min_exponent);
+    static inline constexpr const int max_exponent = kExponentBias - 1;
+    static inline constexpr const int max_exponent10 =
+        MaxExponent10FromMaxExponentAndDigits(max_exponent, digits);
+    static inline constexpr const bool has_infinity = Fp.OV_behavior != lo_float::Inf_Behaviors::Saturating;
 
-}
+    using Base_Type = Base_repr_select<Fp.bitwidth>;
+            static constexpr Templated_Float<Fp> min() {
+                return Templated_Float<Fp>::FromRep((1 << (Fp.mantissa_bits)));
+              }
+              static constexpr Templated_Float<Fp> lowest() {
+                return Templated_Float<Fp>::FromRep(Fp.IsInf.minNegInf() - 1);
+              }
+              static constexpr Templated_Float<Fp> max() {
+                return Templated_Float<Fp>::FromRep(Fp.IsInf.minPosInf() - 1);
+              }
+              static constexpr Templated_Float<Fp> epsilon() {
+                return Templated_Float<Fp>::FromRep(
+                  static_cast<Base_Type>(((-1 + kExponentBias) << kMantissaBits))
+                );
+              }
+              static constexpr Templated_Float<Fp> round_error() {
+                return Templated_Float<Fp>::FromRep(
+                    ((-1 + kExponentBias) << kMantissaBits)
+                );
+              }
+              static constexpr Templated_Float<Fp> infinity() {
+                return Templated_Float<Fp>::FromRep(Fp.IsInf.infBitPattern());
+              }
+              static constexpr Templated_Float<Fp> quiet_NaN() {
+                return Templated_Float<Fp>::FromRep(Fp.IsNaN.qNanBitPattern());
+              }
+              static constexpr Templated_Float<Fp> signaling_NaN() {
+                return Templated_Float<Fp>::FromRep(Fp.IsNaN.sNanBitPattern());
+              }
+              static constexpr Templated_Float<Fp> denorm_min() {
+                return Templated_Float<Fp>::FromRep(0x1);
+              }
+
+};
 
 }
 }
@@ -1768,12 +1832,31 @@ namespace std {
     template <int p, lo_float::Rounding_Mode rm>
     struct numeric_limits<lo_float::lo_float_internal::float4_p<p, rm>>
       : lo_float::lo_float_internal::numeric_limits_f4_p_rm<p, rm> {};
+
+    template <lo_float::FloatingPointParams Fp>
+    struct numeric_limits<lo_float::lo_float_internal::Templated_Float<Fp>>
+      : lo_float::lo_float_internal::numeric_limits_flexible<Fp> {};
     
     }  // namespace std
     
 
 namespace lo_float {
     namespace lo_float_internal {
+
+template<FloatingPointParams Fp>
+constexpr inline Templated_Float<Fp> abs(const Templated_Float<Fp>& a) {
+    return Templated_Float<Fp>::FromRep(a.rep() & ((1 << (Fp.bitwidth - 1)) - 1));
+}
+
+template<FloatingPointParams Fp>
+constexpr inline bool isnan(const Templated_Float<Fp>& a) {
+    return Fp.IsNaN(a);
+}
+
+template<FloatingPointParams Fp>
+constexpr inline bool isinf(const Templated_Float<Fp>& a) {
+    return Fp.IsInf(a);
+}
 
 
 // float6_e2m3<rm>
@@ -2150,6 +2233,14 @@ struct Traits<float4_p<p, rm>> : public TraitsBase<float4_p<p, rm>> {
   using Base = TraitsBase<float4_p<p, rm>>;
   static constexpr int kBits = 4;
   static constexpr int kExponentBias = 1 << (3 - p);
+};
+
+
+template <FloatingPointParams Fp>
+struct Traits<Templated_Float<Fp>> : public TraitsBase<Templated_Float<Fp>> {
+    using Base = TraitsBase<Templated_Float<Fp>>;
+    static constexpr int kBits = Fp.bitwidth;
+    static constexpr int kExponentBias = Fp.bias;
 };
 
 
@@ -2539,6 +2630,9 @@ using float4_e2m1 = lo_float_internal::float4_e2m1<rm>;
 template<int p, Rounding_Mode rm>
 using float4_p = lo_float_internal::float4_p<p, rm>;
 
+template<FloatingPointParams Fp>
+using Templated_Float = lo_float_internal::Templated_Float<Fp>;
+
 
 }   //namespace lo_float
 
@@ -2608,6 +2702,12 @@ lo_float::float4_e2m1<rm> bit_cast(const uint8_t& src) {
 template <lo_float::Rounding_Mode rm>
 EIGEN_STRONG_INLINE EIGEN_DEVICE_FUNC
 uint8_t bit_cast(const lo_float::float4_e2m1<rm>& src) {
+  return src.rep();
+}
+
+template<lo_float::FloatingPointParams Fp, typename UnderlyingType>
+EIGEN_STRONG_INLINE EIGEN_DEVICE_FUNC
+UnderlyingType bit_cast(const lo_float::Templated_Float<Fp>& src) {
   return src.rep();
 }
 
