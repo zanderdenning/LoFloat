@@ -421,12 +421,15 @@ using Base_repr_select = std::conditional_t<(Len <= 8), uint8_t, std::conditiona
 template<typename Derived, FloatingPointParams Fp>
 class Var_lo_float : public lo_float_base<Derived, Base_repr_select<Fp.bitwidth>> {
     private :
-        using UType = Base_repr_select<Fp.bitwidth>;
-        friend class lo_float_base<Derived, UType>;
-        using Base = lo_float_base<Derived, UType>;
-        
-        using Base::Base;
-        using SType = std::make_signed<UType>::type;
+    using UType = Base_repr_select<Fp.bitwidth>;
+    using Base  = lo_float_base<Derived, UType>;
+
+    friend class lo_float_base<Derived, UType>;
+
+    // Inherit constructors from lo_float_base
+    using Base::Base;
+
+    using SType = typename std::make_signed<UType>::type;
 
 
     static EIGEN_STRONG_INLINE EIGEN_DEVICE_FUNC SType
@@ -449,6 +452,10 @@ class Var_lo_float : public lo_float_base<Derived, Base_repr_select<Fp.bitwidth>
         constexpr Derived operator-() const {
             return Base::FromRep(static_cast<UType>(this->rep() ^ (1 << Fp.bitwidth)));
         }
+
+        Derived operator-(const Derived& other) const {
+            return Base::operator-(other);
+        }
         //declare structs/enums from template arg as static fields so that they can be accessed later
         static constexpr NaNChecker auto IsNaNFunctor = Fp.IsNaN;
 
@@ -470,23 +477,25 @@ class Var_lo_float : public lo_float_base<Derived, Base_repr_select<Fp.bitwidth>
 template<FloatingPointParams Fp>
 class Templated_Float : public Var_lo_float<Templated_Float<Fp>, Fp> {
  private:
-  using Templated_Float_Type = Templated_Float<Fp>;
-  using Base = lo_float_base<Templated_Float_Type>;
-  friend class lo_float_base<Templated_Float_Type>;
-  using Base::Base;
+ using Base = Var_lo_float<Templated_Float<Fp>, Fp>;
+
+ friend class Var_lo_float<Templated_Float<Fp>, Fp>;
+
+ // Now we can inherit constructors safely:
+ using Base::Base;
 
  public:
-  Templated_Float<Fp> operator-(const Templated_Float<Fp>& other) const {
-    return Base::operator-(other);
-  }
+  // Templated_Float<Fp> operator-(const Templated_Float<Fp>& other) const {
+  //   return Base::operator-(other);
+  // }
 
-  constexpr Templated_Float<Fp> operator-() const {
-    // TODO: use isnan()
-    if ((this->rep() & ((1 << Fp.bitwidth) - 1)) == 0x00) {
-      return *this;
-    }
-    return Base::operator-();
-  }
+  // constexpr Templated_Float<Fp> operator-() const {
+  //   // TODO: use isnan()
+  //   if ((this->rep() & ((1 << Fp.bitwidth) - 1)) == 0x00) {
+  //     return *this;
+  //   }
+  //   return Base::operator-();
+  // }
 
 };
 
@@ -1009,7 +1018,7 @@ constexpr int MaxExponent10FromMaxExponentAndDigits(int max_exponent,
 
         
         struct numeric_limits_float8_e4m3fn : public numeric_limits_float8_base {
-        private:
+        public:
         static inline constexpr const int kExponentBias = 7;
         static inline constexpr const int kMantissaBits = 3;
 
@@ -1072,7 +1081,7 @@ constexpr int MaxExponent10FromMaxExponentAndDigits(int max_exponent,
         };
 
         struct numeric_limits_float8_e4m3b11fnuz : public numeric_limits_float8_base {
-        private:
+  
         static inline constexpr const int kExponentBias = 11;
         static inline constexpr const int kMantissaBits = 3;
 
@@ -1136,7 +1145,7 @@ constexpr int MaxExponent10FromMaxExponentAndDigits(int max_exponent,
         };
 
         struct numeric_limits_float8_e4m3fnuz : public numeric_limits_float8_base {
-        private:
+
         static inline constexpr const int kExponentBias = 8;
         static inline constexpr const int kMantissaBits = 3;
 
@@ -1194,7 +1203,7 @@ constexpr int MaxExponent10FromMaxExponentAndDigits(int max_exponent,
 
 
         struct numeric_limits_float8_e5m2 : public numeric_limits_float8_base {
-        private:
+
         static inline constexpr const int kExponentBias = 15;
         static inline constexpr const int kMantissaBits = 2;
 
@@ -1253,7 +1262,7 @@ struct numeric_limits_f8_e5m2_rm : numeric_limits_float8_e5m2 {
 
 
         struct numeric_limits_float8_e5m2fnuz : public numeric_limits_float8_base {
-        private:
+
         static inline constexpr const int kExponentBias = 16;
         static inline constexpr const int kMantissaBits = 2;
 
@@ -1313,7 +1322,7 @@ struct numeric_limits_f8_e5m2_rm : numeric_limits_float8_e5m2 {
 
         template <int p>
         struct numeric_limits_float8_ieee_p : public numeric_limits_float8_base {
-        private:
+
         static inline constexpr const int kExponentBias = (1 << (7-p));
         static inline constexpr const int kMantissaBits = p - 1;
 
@@ -1396,7 +1405,7 @@ struct numeric_limits_f8_ieee_p_rm : numeric_limits_float8_ieee_p<p> {
         };
 
         struct numeric_limits_float6_e3m2 : public numeric_limits_float6_base {
-            private :
+
             static inline constexpr const int kExponentBias = 3;
             static inline constexpr const int kMantissaBits = 2;
             public:
@@ -1453,7 +1462,7 @@ struct numeric_limits_f6_e3m2_rm : numeric_limits_float6_e3m2 {
   }
 };
         struct numeric_limits_float6_e2m3 : public numeric_limits_float6_base {
-            private :
+
             static inline constexpr const int kExponentBias = 1;
             static inline constexpr const int kMantissaBits = 3;
             public:
@@ -1598,7 +1607,7 @@ struct numeric_limits_f6_p_rm : numeric_limits_float6_p<p> {
 
         struct numeric_limits_float4_e2m1 : public numeric_limits_float4_base {
 
-                    private:
+   
             static inline constexpr const int kExponentBias = 1;
             static inline constexpr const int kMantissaBits = 1;
 
@@ -1850,12 +1859,12 @@ constexpr inline Templated_Float<Fp> abs(const Templated_Float<Fp>& a) {
 
 template<FloatingPointParams Fp>
 constexpr inline bool isnan(const Templated_Float<Fp>& a) {
-    return Fp.IsNaN(a);
+    return Fp.IsNaN(a.rep());
 }
 
 template<FloatingPointParams Fp>
 constexpr inline bool isinf(const Templated_Float<Fp>& a) {
-    return Fp.IsInf(a);
+    return Fp.IsInf(a.rep());
 }
 
 
