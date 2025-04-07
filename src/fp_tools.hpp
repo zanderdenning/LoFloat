@@ -96,7 +96,7 @@ struct FloatingPointParams
         Inf_Behaviors ovb,
         NaN_Behaviors nab,
         Signedness is_signed,
-        SubNormal_Support SN_sup,
+        //SubNormal_Support SN_sup,
         IsInfFunctor IsInf,
         IsNaNFunctor IsNaN
     )
