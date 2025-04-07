@@ -1,9 +1,11 @@
 /// @author Sudhanva Kulkarni
-/* This file contains code for software defined 6 bit and 4 bit floats. It is an extended version of Andrew Fitzgibbon's float8.h
+/* This file contains code for software defined 6 bit and 4 bit floats. It follows the same software design as Andrew Fitzgibbon's float8.h and uses std::bitset instead of uint8
 */
 #ifndef ML_DTYPES_FLOAT6_4_H_
 #define ML_DTYPES_FLOAT6_4_H_
-#define LEN 13  //this is the length  of the bitstring used for stochastic rounding
+//#define STOCHASTIC_ROUND
+//#define STOCHASTIC_ARITH
+#define LEN 13  
 #include <random> 
 #include <ctime>
 #include <algorithm>
@@ -22,8 +24,9 @@
 #include <type_traits>
 // #include "tlapack/base/types.hpp"
 // #include "tlapack/base/scalar_type_traits.hpp"
+// #include "tlapack/base/types.hpp"
+// #include "tlapack/base/scalar_type_traits.hpp"
 #include  "eigen/Eigen/Core"  
-#include "fp_tools.hpp"
 
 #ifdef __has_include
 # if __has_include(<version>)
@@ -41,13 +44,8 @@
 
 
 
+
 namespace lo_float {
-
-
-
-
-
-
 namespace lo_float_internal {
 
 
