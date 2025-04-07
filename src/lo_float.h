@@ -51,9 +51,14 @@ namespace lo_float {
 namespace lo_float_internal {
 
 
+  static std::mt19937 mt(static_cast<int>(time(nullptr)));
 
-    static std::uniform_int_distribution<int> distribution(0, (1<< LEN) - 1);
-    static std::mt19937 mt(time(nullptr));
+  //global function to set seed
+  void set_seed(int a) {
+    mt.seed(a);
+  }
+  
+  
  // 6-bit floats
 // First two classes had no template params, now they each get the Rounding_Mode template:
 template <Rounding_Mode rm>
@@ -62,8 +67,7 @@ class float6_e3m2;
 template <Rounding_Mode rm>
 class float6_e2m3;
 
-// Previously: template<int p> class float6_p;
-// Now: template<int p, Rounding_Mode rm> class float6_p;
+
 template<int p, Rounding_Mode rm>
 class float6_p;
 
@@ -319,98 +323,6 @@ private:
     }
 }; //lo_float_base
 
-template <typename Derived>
-class float4_base : public lo_float_base<Derived> {
- 
-    private :
-        friend class lo_float_base<Derived>;
-        
-        static EIGEN_STRONG_INLINE EIGEN_DEVICE_FUNC int8_t
-        SignAndMagnitudeToTwosComplement(uint8_t sign, uint8_t magnitude) {
-            return magnitude ^ (static_cast<int8_t>(sign << 4) < 0 ? -1 : 0);
-        }
-
-        
-protected:
-    using Base = lo_float_base<Derived>;
-    using typename Base::ConstructFromRepTag;
-
-    // Protected constructor that calls base
-    constexpr float4_base(uint8_t rep, ConstructFromRepTag tag)
-        : Base(rep, tag)
-    {}
-
-public:
-    // Inherit all base constructors
-    using Base::Base;
-
-    explicit EIGEN_DEVICE_FUNC operator bool() const {
-        return (this->rep() & 0x7) != 0;
-    }
-    constexpr Derived operator-() const {
-        // Flip sign bit (assuming bit 3 = sign)
-        return Base::FromRep(static_cast<uint8_t>(this->rep() ^ 0x8));
-    }
-
-    
-};
-
-      template <typename Derived>
-class float6_base : public lo_float_base<Derived> {
-      private :
-
-        friend class lo_float_base<Derived>;
-
-   
-        static EIGEN_STRONG_INLINE EIGEN_DEVICE_FUNC int8_t
-        SignAndMagnitudeToTwosComplement(uint8_t sign, uint8_t magnitude) {
-            return magnitude ^ (static_cast<int8_t>(sign << 2) < 0 ? -1 : 0);
-        }
-
-protected:
-    using Base = lo_float_base<Derived>;
-    using typename Base::ConstructFromRepTag;
-
-    constexpr float6_base(uint8_t rep, ConstructFromRepTag tag)
-        : Base(rep, tag)
-    {}
-
-public:
-    using Base::Base;
-
-    explicit EIGEN_DEVICE_FUNC operator bool() const {
-        return (this->rep() & 0x1F) != 0;
-    }
-    constexpr Derived operator-() const {
-        return Base::FromRep(static_cast<uint8_t>(this->rep() ^ 0x20));
-    }
-
-};
-
-template <typename Derived>
-class float8_base : public lo_float_base<Derived> {
-      private :
-        friend class lo_float_base<Derived>;
-protected:
-    using Base = lo_float_base<Derived>;
-    using typename Base::ConstructFromRepTag;
-
-    constexpr float8_base(uint8_t rep, ConstructFromRepTag tag)
-        : Base(rep, tag)
-    {}
-
-public:
-
-    using Base::Base;
-
-    explicit EIGEN_DEVICE_FUNC operator bool() const {
-        return (this->rep() & 0x7F) != 0;
-    }
-    constexpr Derived operator-() const {
-        return Base::FromRep(static_cast<uint8_t>(this->rep() ^ 0x80));
-    }
-};
-
 
 //helper template to pick storage format
 template<int Len>
@@ -466,11 +378,13 @@ class Var_lo_float : public lo_float_base<Derived, Base_repr_select<Fp.bitwidth>
         static constexpr  Inf_Behaviors Overflow_behavior = Fp.OV_behavior;
         static constexpr  NaN_Behaviors NaN_behavior = Fp.NA_behavior;
 
+        static constexpr int bitwidth = Fp.bitwidth;
+
+        static constexpr Signedness is_signed = Fp.is_signed;
+
         static constexpr  int bias = Fp.bias;
 
         static constexpr int p = Fp.mantissa_bits;
-
-        static constexpr int float_length = Fp.bitwidth;
 
 };
 
@@ -481,21 +395,7 @@ class Templated_Float : public Var_lo_float<Templated_Float<Fp>, Fp> {
 
  friend class Var_lo_float<Templated_Float<Fp>, Fp>;
 
- // Now we can inherit constructors safely:
  using Base::Base;
-
- public:
-  // Templated_Float<Fp> operator-(const Templated_Float<Fp>& other) const {
-  //   return Base::operator-(other);
-  // }
-
-  // constexpr Templated_Float<Fp> operator-() const {
-  //   // TODO: use isnan()
-  //   if ((this->rep() & ((1 << Fp.bitwidth) - 1)) == 0x00) {
-  //     return *this;
-  //   }
-  //   return Base::operator-();
-  // }
 
 };
 
@@ -1734,9 +1634,9 @@ struct numeric_limits_flexible {
     static inline constexpr const bool is_exact = false;
     static inline constexpr const bool has_quiet_NaN = Fp.NA_behavior == lo_float::NaN_Behaviors::HasQuietNaN;
     static inline constexpr const bool has_signaling_NaN = Fp.NA_behavior == lo_float::NaN_Behaviors::SignalingNaN;
-    static inline constexpr const bool has_denorm = Fp.SN_support == lo_float::SubNormal_Support::Has_SubNormal_Support;
+    static inline constexpr const bool has_denorm = true;
     static inline constexpr const bool has_denorm_loss = false;
-    static inline constexpr const bool round_style = std::round_to_nearest;
+    static inline constexpr const bool round_style = std::round_indeterminate;
     static inline constexpr const bool is_iec559 = false;
     static inline constexpr const int radix = std::numeric_limits<float>::radix;
     static inline constexpr const bool traps = false;
@@ -1750,7 +1650,7 @@ struct numeric_limits_flexible {
     static inline constexpr const int min_exponent = (1 - kExponentBias);
     static inline constexpr const int min_exponent10 =
         MinExponent10FromMinExponent(min_exponent);
-    static inline constexpr const int max_exponent = kExponentBias - 1;
+    static inline constexpr const int max_exponent = is_signed ? (1 << (Fp.bitwidth - Fp.mantissa_bits - 1)) - 1 - Fp.bias : (1 << (Fp.bitwidth - Fp.mantissa_bits)) - 1 - Fp.bias;
     static inline constexpr const int max_exponent10 =
         MaxExponent10FromMaxExponentAndDigits(max_exponent, digits);
     static inline constexpr const bool has_infinity = Fp.OV_behavior != lo_float::Inf_Behaviors::Saturating;
@@ -1776,7 +1676,7 @@ struct numeric_limits_flexible {
                 );
               }
               static constexpr Templated_Float<Fp> infinity() {
-                return Templated_Float<Fp>::FromRep(Fp.IsInf.infBitPattern());
+                return Templated_Float<Fp>::FromRep(Fp.IsInf.minPosInf());
               }
               static constexpr Templated_Float<Fp> quiet_NaN() {
                 return Templated_Float<Fp>::FromRep(Fp.IsNaN.qNanBitPattern());
@@ -2272,11 +2172,10 @@ constexpr inline Bits RoundBitsToNearestEven(Bits bits, int roundoff) {
 }
 
 template <typename Bits>
-inline Bits Stochastic_Round(Bits bits, int roundoff) {
+inline Bits Stochastic_Round(Bits bits, int roundoff, int len = 0) {
   //given pattern FFF...FLRTT...T,rounds stochastically by generating random bits
   // corresponding to  RTT...T and adding the genned number.
   //Then we truncate the mantissa
-  auto len = LEN;
   //auto len = 2;
   int samp = distribution(mt); // Generate a random integer
   Bits complement = (Bits{1} << (len)) - 1;
@@ -2320,6 +2219,23 @@ constexpr inline Bits RoundBitsToNearestOdd(Bits bits, int roundoff) {
     return bits + bias;
 }
 
+template<tyepname Bits>
+inline Bits RoundUp(Bits bits, int roundoff) {
+  //round bit pattern up by adding 1 to the bit pattern
+  //in bits FFF...FLRTT...T, set RTT...T to be 0 and add 1 to FFF...F
+  auto mask = ~((Bits{1} << roundoff) - 1);
+  Bits truncated = bits & mask;
+  return truncated + (bits > 0 ? Bits{1} << roundoff : 0);
+
+}
+template <typename Bits>
+inline Bits RoundDown(Bits bits, int roundoff) {
+  //just truncate the bits
+  //in bits FFF...FLRTT...T, set RTT...T to be 0
+  auto mask = ~((Bits{1} << roundoff) - 1);
+  return bits & mask;
+ 
+}
 
 template <typename From, typename To, bool kSaturate, bool kTruncate>
 struct ConvertImpl<From, To, kSaturate, kTruncate,

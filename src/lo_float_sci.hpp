@@ -564,7 +564,35 @@ inline Templated_Float<Fp> pow(int base, Templated_Float<Fp> expVal)
     );
 }
 
-} // namespace lo_float
+//9) FMA
+template <FloatingPointParams Fp_A, FloatingPointParams Fp_B, FloatingPointParams Fp_C, FloatingPointParams Fp_Acc>
+inline Templated_Float<Fp1> fma(
+    Templated_Float<Fp1> x, Templated_Float<Fp2> y, Templated_Float<Fp3> z) noexcept
+{
+    using accum_type = Templated_Float<Fp_Acc>;
+    using result_type = Templated_Float<Fp3>;   
+    return static_cast<result_type>(
+        static_cast<accum_type>(x) * static_cast<accum_type>(y) +
+        static_cast<accum_type>(z)
+    );
+
+
+} 
+
+//10) FAA
+template <FloatingPointParams Fp_A, FloatingPointParams Fp_B, FloatingPointParams Fp_C, FloatingPointParams Fp_Acc>
+inline Templated_Float<Fp1> faa(
+    Templated_Float<Fp1> x, Templated_Float<Fp2> y, Templated_Float<Fp3> z) noexcept
+{
+    using accum_type = Templated_Float<Fp_Acc>;
+    using result_type = Templated_Float<Fp3>;   
+    return static_cast<result_type>(
+        static_cast<accum_type>(x) + static_cast<accum_type>(y) + static_cast<accum_type>(z)
+    );
+} 
+
+} // namespace tlapack
+// namespace lo_float
 
 
 
