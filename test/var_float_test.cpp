@@ -16,7 +16,7 @@ int main() {
         public:
 
         bool operator()(uint32_t bits) const {
-            return bits == 0x0000007F || bits == 0x000000FF;
+            return bits == 0x0000007F || bits == 0x000000FF;    
         }
 
         uint32_t infBitPattern() const {
@@ -24,11 +24,11 @@ int main() {
         }
 
         uint32_t minNegInf() const {
-            return 0x0000001F;
+            return 0x0000001F;      //1E
         }
 
         uint32_t minPosInf() const {
-            return 0x0000000F;
+            return 0x0000000F;      //E
         }
 
     };
@@ -52,7 +52,7 @@ int main() {
 
     constexpr FloatingPointParams f8_e4m3_params(5, 2, 4, 
         Rounding_Mode::RoundToNearestEven, Inf_Behaviors::HasNonTrappingInf, 
-        NaN_Behaviors::NoNaN, Signedness::Signed, SubNormal_Support::Has_SubNormal_Support,
+        NaN_Behaviors::NoNaN, Signedness::Signed,
         IsInf_f8_e4m3(), IsNaN_f8_e4m3()
     );
 
