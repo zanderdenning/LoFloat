@@ -26,6 +26,7 @@
 // #include "tlapack/base/scalar_type_traits.hpp"
 // #include "tlapack/base/types.hpp"
 // #include "tlapack/base/scalar_type_traits.hpp"
+#include "fp_tools.hpp"
 #include  "eigen/Eigen/Core"  
 
 #ifdef __has_include
@@ -321,6 +322,98 @@ private:
     }
 }; //lo_float_base
 
+template <typename Derived>
+class float4_base : public lo_float_base<Derived> {
+ 
+    private :
+        friend class lo_float_base<Derived>;
+        
+        static EIGEN_STRONG_INLINE EIGEN_DEVICE_FUNC int8_t
+        SignAndMagnitudeToTwosComplement(uint8_t sign, uint8_t magnitude) {
+            return magnitude ^ (static_cast<int8_t>(sign << 4) < 0 ? -1 : 0);
+        }
+
+        
+protected:
+    using Base = lo_float_base<Derived>;
+    using typename Base::ConstructFromRepTag;
+
+    // Protected constructor that calls base
+    constexpr float4_base(uint8_t rep, ConstructFromRepTag tag)
+        : Base(rep, tag)
+    {}
+
+public:
+    // Inherit all base constructors
+    using Base::Base;
+
+    explicit EIGEN_DEVICE_FUNC operator bool() const {
+        return (this->rep() & 0x7) != 0;
+    }
+    constexpr Derived operator-() const {
+        // Flip sign bit (assuming bit 3 = sign)
+        return Base::FromRep(static_cast<uint8_t>(this->rep() ^ 0x8));
+    }
+
+    
+};
+
+      template <typename Derived>
+class float6_base : public lo_float_base<Derived> {
+      private :
+
+        friend class lo_float_base<Derived>;
+
+   
+        static EIGEN_STRONG_INLINE EIGEN_DEVICE_FUNC int8_t
+        SignAndMagnitudeToTwosComplement(uint8_t sign, uint8_t magnitude) {
+            return magnitude ^ (static_cast<int8_t>(sign << 2) < 0 ? -1 : 0);
+        }
+
+protected:
+    using Base = lo_float_base<Derived>;
+    using typename Base::ConstructFromRepTag;
+
+    constexpr float6_base(uint8_t rep, ConstructFromRepTag tag)
+        : Base(rep, tag)
+    {}
+
+public:
+    using Base::Base;
+
+    explicit EIGEN_DEVICE_FUNC operator bool() const {
+        return (this->rep() & 0x1F) != 0;
+    }
+    constexpr Derived operator-() const {
+        return Base::FromRep(static_cast<uint8_t>(this->rep() ^ 0x20));
+    }
+
+};
+
+template <typename Derived>
+class float8_base : public lo_float_base<Derived> {
+      private :
+        friend class lo_float_base<Derived>;
+protected:
+    using Base = lo_float_base<Derived>;
+    using typename Base::ConstructFromRepTag;
+
+    constexpr float8_base(uint8_t rep, ConstructFromRepTag tag)
+        : Base(rep, tag)
+    {}
+
+public:
+
+    using Base::Base;
+
+    explicit EIGEN_DEVICE_FUNC operator bool() const {
+        return (this->rep() & 0x7F) != 0;
+    }
+    constexpr Derived operator-() const {
+        return Base::FromRep(static_cast<uint8_t>(this->rep() ^ 0x80));
+    }
+};
+
 
 //helper template to pick storage format
 template<int Len>
@@ -382,7 +475,7 @@ class Var_lo_float : public lo_float_base<Derived, Base_repr_select<Fp.bitwidth>
 
         static constexpr  int bias = Fp.bias;
 
-        static constexpr int p = Fp.mantissa_bits;
+        static constexpr int mantissa_bits = Fp.mantissa_bits;
 
 };
 
@@ -1630,7 +1723,7 @@ struct numeric_limits_flexible {
     static inline constexpr const bool is_signed = Fp.is_signed == lo_float::Signedness::Signed;
     static inline constexpr const bool is_integer = false;
     static inline constexpr const bool is_exact = false;
-    static inline constexpr const bool has_quiet_NaN = Fp.NA_behavior == lo_float::NaN_Behaviors::HasQuietNaN;
+    static inline constexpr const bool has_quiet_NaN = Fp.NA_behavior == lo_float::NaN_Behaviors::QuietNaN;
     static inline constexpr const bool has_signaling_NaN = Fp.NA_behavior == lo_float::NaN_Behaviors::SignalingNaN;
     static inline constexpr const bool has_denorm = true;
     static inline constexpr const bool has_denorm_loss = false;
@@ -1688,6 +1781,14 @@ struct numeric_limits_flexible {
 
 };
 
+}
+
+void set_seed(unsigned int seedVal)
+{
+    // Just forward to the internal function or directly:
+    lo_float_internal::mt.seed(seedVal);
+
+    // or lo_float_internal::set_seed_internal(seedVal);
 }
 }
 
@@ -2175,6 +2276,7 @@ inline Bits Stochastic_Round(Bits bits, int roundoff, int len = 0) {
   // corresponding to  RTT...T and adding the genned number.
   //Then we truncate the mantissa
   //auto len = 2;
+  static std::uniform_int_distribution<int> distribution(0, (1<< len) - 1);
   int samp = distribution(mt); // Generate a random integer
   Bits complement = (Bits{1} << (len)) - 1;
   Bits to_add = static_cast<Bits>(samp & complement); 
@@ -2217,7 +2319,7 @@ constexpr inline Bits RoundBitsToNearestOdd(Bits bits, int roundoff) {
     return bits + bias;
 }
 
-template<tyepname Bits>
+template<typename Bits>
 inline Bits RoundUp(Bits bits, int roundoff) {
   //round bit pattern up by adding 1 to the bit pattern
   //in bits FFF...FLRTT...T, set RTT...T to be 0 and add 1 to FFF...F

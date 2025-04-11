@@ -1,93 +1,180 @@
-///@author Sudhanva Kulkarni
-///header file containing a bunch of useful enum and struct definitions
-#include <cstdint>
+/// @author Sudhanva Kulkarni
+/// @file
+/// @brief This header file defines several enums and a struct that describe
+///        floating-point parameters (bit width, rounding, infinity/NaN behavior, etc.)
+///        used by the lo_float library.
 
+#pragma once
+
+#include <cstdint>
 #include <concepts>
-#include <cstdint>
 
+namespace lo_float {
 
-
-namespace lo_float {    
-
-
+/**
+ * @enum Rounding_Mode
+ * @brief Defines different rounding strategies for floating-point operations.
+ */
 enum Rounding_Mode : uint8_t {
+    /// @brief Round to the nearest representable value.  
+    /// If equidistant between two representable values, round to the one with an even least significant bit.
     RoundToNearestEven = 0,
+
+    /// @brief Round toward zero (truncate fractional part).
     RoundTowardsZero = 1,
+
+    /// @brief Round away from zero (always go to the numerically larger magnitude).
     RoundAwayFromZero = 2,
+
+    /// @brief Use stochastic rounding to decide how to round the fractional part.
     StochasticRounding = 3,
+
+    /// @brief Round to the nearest representable value.  
+    /// If equidistant, pick the one whose least significant bit is odd.
     RoundToNearestOdd = 4,
+
+    /// @brief Round down (toward -∞), sometimes called "floor" for positive values.
     RoundDown = 5,
+
+    /// @brief Round up (toward +∞), sometimes called "ceiling" for positive values.
     RoundUp = 6,
+
+    /// @brief Round ties away from zero.  
+    /// If exactly halfway between two representable values, pick the one with larger magnitude.
     RoundTiesToAway = 7
 };
 
+/**
+ * @enum Signedness
+ * @brief Indicates whether a floating-point format is signed or unsigned.
+ */
 enum Signedness : uint8_t {
+    /// @brief The format uses one sign bit (positive/negative).
     Signed = 0,
+
+    /// @brief The format has no sign bit (only non-negative values).
     Unsigned = 1
 };
 
+/**
+ * @enum Inf_Behaviors
+ * @brief Describes how infinities behave or are handled by the format.
+ */
 enum Inf_Behaviors : uint8_t {
+    /// @brief Non-trapping infinities are allowed (like IEEE 754 behavior).
     NonTrappingInf = 0,
+
+    /// @brief Saturate to the maximum representable value instead of producing an infinity.
     Saturating = 1,
-    Trapping = 2        //TODO : come back to this 
+
+    /// @brief Trapping infinities (reserved for future use or custom behavior).
+    Trapping = 2
 };
 
+/**
+ * @enum NaN_Behaviors
+ * @brief Describes how NaNs (Not-a-Number) are handled by the format.
+ */
 enum NaN_Behaviors : uint8_t {
+    /// @brief Support quiet NaNs (non-signaling) in the format (like IEEE 754).
     QuietNaN = 0,
+
+    /// @brief No NaN support (e.g., produce some alternate representation or saturate).
     NoNaN = 1,
-    SignalingNaN = 2            //TODO : come back to this 
+
+    /// @brief Use signaling NaNs, which can trigger additional exceptions or checks.
+    SignalingNaN = 2
 };
 
+// -------------------------------------------------------------------------
+// Concepts for checking Infinity and NaN - used in the FloatingPointParams.
+// -------------------------------------------------------------------------
 
-
-// e4m3 a, e4m3 b
-// float c = 1
-// c += float(a)*float(b)  
-// c = fma(a, b, c) -- TODO
-
-
-
-// Concept: "InfChecker" means a type T has operator()(uint64_t) -> bool
+/**
+ * @concept InfChecker
+ * @brief A type that can detect and produce bit patterns for infinities.
+ * 
+ * A valid InfChecker must:
+ * - Be callable with a `uint64_t` returning a `bool` indicating if that bit pattern is infinite.
+ * - Provide `infBitPattern()`, `minNegInf()`, and `minPosInf()` that each return a `uint64_t`.
+ */
 template <typename T>
 concept InfChecker = requires(T t, uint64_t bits) {
-    // Must be callable with a uint32_t, returning something convertible to bool
     { t(bits) } -> std::convertible_to<bool>;
-
-    // Must have an infBitPattern() that returns something convertible to uint32_t
     { t.infBitPattern() } -> std::convertible_to<uint64_t>;
-
-    // Must have a minNegInf() method returning something convertible to uint32_t
     { t.minNegInf() } -> std::convertible_to<uint64_t>;
-
-    // Must have a minPosInf() method returning something convertible to uint32_t
     { t.minPosInf() } -> std::convertible_to<uint64_t>;
 };
 
-// Concept: "NaNChecker" means a type T has operator()(uint64_t) -> bool
+/**
+ * @concept NaNChecker
+ * @brief A type that can detect and produce bit patterns for NaNs.
+ * 
+ * A valid NaNChecker must:
+ * - Be callable with a `uint64_t` returning a `bool` indicating if that bit pattern is NaN.
+ * - Provide `qNanBitPattern()` and `sNanBitPattern()` that each return a `uint64_t`.
+ */
 template <typename T>
 concept NaNChecker = requires(T t, uint64_t bits) {
     { t(bits) } -> std::convertible_to<bool>;
     { t.qNanBitPattern() } -> std::convertible_to<uint64_t>;
     { t.sNanBitPattern() } -> std::convertible_to<uint64_t>;
-
 };
 
-
-
+/**
+ * @struct FloatingPointParams
+ * @brief Encapsulates the parameters and behavior for a floating-point format.
+ *
+ * @tparam IsInfFunctor A functor conforming to @ref InfChecker
+ * @tparam IsNaNFunctor A functor conforming to @ref NaNChecker
+ */
 template<InfChecker IsInfFunctor, NaNChecker IsNaNFunctor>
 struct FloatingPointParams
 {
-    int bitwidth;       //total bitwidth of the floating point number
-    int mantissa_bits;  //number of bits in the mantissa. Number of exponent bits is calced as bitwidth - mantissa_bits
-    int bias;           //bias for the exponent
-    Rounding_Mode rounding_mode;  
-    Inf_Behaviors OV_behavior;
-    NaN_Behaviors NA_behavior;
-    Signedness is_signed;       //toggles whether float is signed or unsigned. If unsigned, the extra bit is given to the exponent.
-    IsInfFunctor IsInf;
-    IsNaNFunctor IsNaN;
-    int StochasticRoundingBits = 0; //number of bits used for stochastic rounding. Set to 0 by default
+    /// @brief Total bit width of the floating-point number (including sign, exponent, mantissa).
+    int bitwidth;
 
+    /// @brief Number of bits in the mantissa (fraction).  
+    /// Exponent bits = bitwidth - mantissa_bits (minus sign bit if signed).
+    int mantissa_bits;
+
+    /// @brief The exponent bias used by the format.
+    int bias;
+
+    /// @brief Specifies how rounding is performed (see @ref Rounding_Mode).
+    Rounding_Mode rounding_mode;
+
+    /// @brief Describes how infinities are handled (see @ref Inf_Behaviors).
+    Inf_Behaviors OV_behavior;
+
+    /// @brief Describes how NaNs are handled (see @ref NaN_Behaviors).
+    NaN_Behaviors NA_behavior;
+
+    /// @brief Indicates whether this format is signed or unsigned (see @ref Signedness).
+    Signedness is_signed;
+
+    /// @brief A functor for checking and generating infinite values (must satisfy @ref InfChecker).
+    IsInfFunctor IsInf;
+
+    /// @brief A functor for checking and generating NaN values (must satisfy @ref NaNChecker).
+    IsNaNFunctor IsNaN;
+
+    /// @brief Number of bits used for stochastic rounding (0 means no stochastic rounding).
+    int StochasticRoundingBits;
+
+    /**
+     * @brief Constructs a FloatingPointParams with the specified parameters.
+     * @param bw Total bitwidth of the floating-point format.
+     * @param mb Number of mantissa (fraction) bits.
+     * @param b Exponent bias.
+     * @param rm Rounding mode (see @ref Rounding_Mode).
+     * @param ovb How infinities are handled (see @ref Inf_Behaviors).
+     * @param nab How NaNs are handled (see @ref NaN_Behaviors).
+     * @param is_signed Indicates signedness (see @ref Signedness).
+     * @param IsInf A functor conforming to @ref InfChecker for inf detection/creation.
+     * @param IsNaN A functor conforming to @ref NaNChecker for NaN detection/creation.
+     * @param stoch_length Number of bits for stochastic rounding (default=0).
+     */
     constexpr FloatingPointParams(
         int bw,
         int mb,
@@ -96,9 +183,9 @@ struct FloatingPointParams
         Inf_Behaviors ovb,
         NaN_Behaviors nab,
         Signedness is_signed,
-        //SubNormal_Support SN_sup,
         IsInfFunctor IsInf,
-        IsNaNFunctor IsNaN
+        IsNaNFunctor IsNaN,
+        int stoch_length = 0
     )
       : bitwidth(bw)
       , mantissa_bits(mb)
@@ -107,17 +194,18 @@ struct FloatingPointParams
       , OV_behavior(ovb)
       , NA_behavior(nab)
       , is_signed(is_signed)
-      , SN_support(SN_sup)
       , IsInf(IsInf)
       , IsNaN(IsNaN)
+      , StochasticRoundingBits(stoch_length)
     {}
 };
 
-
-
-// -------------------------
-//  32-bit float functors
-// -------------------------
+/**
+ * @struct SingleInfChecker
+ * @brief Detects and produces bit patterns for infinities in 32-bit float format.
+ *
+ * Infinity is indicated by exponent=0xFF and fraction=0.
+ */
 struct SingleInfChecker {
     bool operator()(uint32_t bits) const {
         static constexpr uint32_t ExponentMask = 0x7F800000;
@@ -144,8 +232,12 @@ struct SingleInfChecker {
     }
 };
 
-///defining standard FloatingPointParams structs for single, double, half, etc
-
+/**
+ * @struct SingleNaNChecker
+ * @brief Detects and produces bit patterns for NaNs in 32-bit float format.
+ *
+ * NaN is indicated by exponent=0xFF and fraction!=0.
+ */
 struct SingleNaNChecker {
     bool operator()(uint32_t bits) const {
         static constexpr uint32_t ExponentMask = 0x7F800000;
@@ -167,10 +259,12 @@ struct SingleNaNChecker {
     }
 };
 
-
-// --------------------------
-//  64-bit double functors
-// --------------------------
+/**
+ * @struct DoubleInfChecker
+ * @brief Detects and produces bit patterns for infinities in 64-bit float (double) format.
+ *
+ * Infinity is indicated by exponent=0x7FF and fraction=0.
+ */
 struct DoubleInfChecker {
     bool operator()(uint64_t bits) const {
         static constexpr uint64_t ExponentMask = 0x7FF0000000000000ULL;
@@ -197,6 +291,12 @@ struct DoubleInfChecker {
     }
 };
 
+/**
+ * @struct DoubleNaNChecker
+ * @brief Detects and produces bit patterns for NaNs in 64-bit float (double) format.
+ *
+ * NaN is indicated by exponent=0x7FF and fraction!=0.
+ */
 struct DoubleNaNChecker {
     bool operator()(uint64_t bits) const {
         static constexpr uint64_t ExponentMask = 0x7FF0000000000000ULL;
@@ -218,10 +318,9 @@ struct DoubleNaNChecker {
     }
 };
 
-
-// --------------------------
-//  Single-precision constants
-// --------------------------
+/**
+ * @brief Predefined parameters for a single-precision (32-bit) IEEE-like float.
+ */
 inline constexpr FloatingPointParams<SingleInfChecker, SingleNaNChecker> singlePrecisionParams(
     /* bitwidth      */ 32,
     /* mantissa_bits */ 23,
@@ -230,15 +329,13 @@ inline constexpr FloatingPointParams<SingleInfChecker, SingleNaNChecker> singleP
     /* OV_behavior   */ NonTrappingInf,
     /* NA_behavior   */ QuietNaN,
     /* is_signed     */ Signed,
-    // you didn't define SubNormal_Support above, so let's assume it's some enum:
-    /* SN_support    */ /* SubNormal_Support::Enabled or whichever */,
     /* IsInf         */ SingleInfChecker{},
     /* IsNaN         */ SingleNaNChecker{}
 );
 
-// --------------------------
-//  Double-precision constants
-// --------------------------
+/**
+ * @brief Predefined parameters for a double-precision (64-bit) IEEE-like float.
+ */
 inline constexpr FloatingPointParams<DoubleInfChecker, DoubleNaNChecker> doublePrecisionParams(
     /* bitwidth      */ 64,
     /* mantissa_bits */ 52,
@@ -247,11 +344,8 @@ inline constexpr FloatingPointParams<DoubleInfChecker, DoubleNaNChecker> doubleP
     /* OV_behavior   */ NonTrappingInf,
     /* NA_behavior   */ QuietNaN,
     /* is_signed     */ Signed,
-    /* SN_support    */ /* SubNormal_Support::Enabled or whichever */,
     /* IsInf         */ DoubleInfChecker{},
     /* IsNaN         */ DoubleNaNChecker{}
 );
 
-
-
-}
+} // namespace lo_float
