@@ -15,7 +15,7 @@ using namespace lo_float;
 // ---------------------------------------------------------------------------
 struct IsInf_f32 {
     bool operator()(uint32_t bits) const {
-        // Typical IEEE754 check: exponent=255 && fraction=0 => Inf
+        // Typical IEEE754 check: exponent=255 && fraction=0 => I nf
         uint32_t exponent = (bits >> 23) & 0xFF;
         uint32_t fraction = bits & 0x7FFFFF;
         return (exponent == 0xFF && fraction == 0);
@@ -42,7 +42,7 @@ struct IsNaN_f32 {
 // (Notice for sr10 we used RoundToNearestEven in this example.)
 // ---------------------------------------------------------------------------
 constexpr FloatingPointParams param_fp32_sr1(
-    32, 23, -127,
+    32, 23, 127,
     Rounding_Mode::StochasticRounding,
     Inf_Behaviors::NonTrappingInf,
     NaN_Behaviors::QuietNaN,
@@ -53,7 +53,7 @@ constexpr FloatingPointParams param_fp32_sr1(
 );
 
 constexpr FloatingPointParams param_fp32_sr5(
-    32, 23, -127,
+    32, 23, 127,
     Rounding_Mode::StochasticRounding,
     Inf_Behaviors::NonTrappingInf,
     NaN_Behaviors::QuietNaN,
@@ -64,8 +64,8 @@ constexpr FloatingPointParams param_fp32_sr5(
 );
 
 constexpr FloatingPointParams param_fp32_sr10(
-    32, 23, -127,
-    Rounding_Mode::RoundToNearestEven,  // a different rounding mode
+    32, 23, 127,
+    Rounding_Mode::StochasticRounding,  // a different rounding mode
     Inf_Behaviors::NonTrappingInf,
     NaN_Behaviors::QuietNaN,
     Signedness::Signed,
@@ -104,7 +104,7 @@ int main()
     std::mt19937 rng(1234);
     std::uniform_real_distribution<double> dist(-100.0, 100.0);
 
-    const int N = 5; // number of random pairs
+    int N = 5; // number of random pairs
 
     // We’ll accumulate sum of REL errors for each op in each type (including native float)
     double sumErrAdd_sr1  = 0.0, sumErrSub_sr1  = 0.0, sumErrMul_sr1  = 0.0, sumErrDiv_sr1  = 0.0;
@@ -117,12 +117,14 @@ int main()
     int countAdd = 0, countSub = 0, countMul = 0, countDiv = 0;
 
     //print min/max values with numeric_limits
-std::cout << "float32_sr1 min: " << (double)std::numeric_limits<float32_sr1>::min() << "\n";
+std::cout << "float32_sr1 min rep: " << (double)std::numeric_limits<float32_sr1>::min().rep() << "\n";
 std::cout << "float32_sr1 max: " << (double)std::numeric_limits<float32_sr1>::max() << "\n";
 std::cout << "float32_sr5 min: " << (double)std::numeric_limits<float32_sr5>::min() << "\n";
 std::cout << "float32_sr5 max: " << (double)std::numeric_limits<float32_sr5>::max() << "\n";
 std::cout << "float32_sr10 min: " << (double)std::numeric_limits<float32_sr10>::min() << "\n";
 std::cout << "float32_sr10 max: " << (double)std::numeric_limits<float32_sr10>::max() << "\n";
+
+std::cout << "float32_sr1 denorm_min: " << (double)std::numeric_limits<float32_sr1>::denorm_min() << "\n";
 
 std::cout << "float32_sr1 mantissa_bits : " << float32_sr1::mantissa_bits << "\n";
 
@@ -153,7 +155,7 @@ std::cout << "float32_sr1 mantissa_bits : " << float32_sr1::mantissa_bits << "\n
 
         std::cout << "x_f: " << x_f << ", y_f: " << y_f << "\n";
 
-        // Double-precision "references"
+    //     // Double-precision "references"
         double add_ref = x_d + y_d;
         double sub_ref = x_d - y_d;
         double mul_ref = x_d * y_d;
@@ -301,5 +303,6 @@ std::cout << "float32_sr1 mantissa_bits : " << float32_sr1::mantissa_bits << "\n
     std::cout << "Div mean REL error: " << meanErrDiv_float << "\n";
 
     std::cout << std::endl;
+    
     return 0;
 }

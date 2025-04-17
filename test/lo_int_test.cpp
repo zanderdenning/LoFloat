@@ -1,3 +1,4 @@
+///@author Sudhanva Kulkarni, UC Berkeley
 #include <iostream>
 #include <cstdlib>  // For rand()
 #include <ctime>    // For seeding random numbers

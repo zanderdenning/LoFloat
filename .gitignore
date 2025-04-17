@@ -1,0 +1,60 @@
+# Object files, static & shared libs
+*.o
+*.obj
+*.lo
+*.a
+*.lib
+*.dll
+*.so
+*.so.*
+*.dylib
+
+# Executables (any name with no extension or common ones)
+*.exe
+*.out
+*.app
+*/*/a.out
+
+# macOS debug symbol bundles
+*.dSYM/
+*.dSYM/**
+
+# Linker & dependency files
+*.map
+*.dep
+*.d
+*.gsym
+*.lld
+
+# Visual Studio / MSBuild
+*.vscode/*
+*.vcxproj*
+*.user
+*.suo
+*.opensdf
+*.psess
+*.vspx?
+*.cache
+*.pdb
+*.ipch
+*.vcxproj.*
+
+# Xcode
+*.xcworkspace
+*.xcuserstate
+*.xccheckout
+*.xcodeproj/*
+!*.xcodeproj/project.pbxproj
+
+# Logs / temporary
+*.log
+*.csv
+*~
+
+# Ignore any file in /test that has no '.' in its name
+/test/[!.]*   
+!/test/Makefile
+
+
+.DS_Store
+Thumbs.db

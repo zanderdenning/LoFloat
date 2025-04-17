@@ -101,7 +101,6 @@ enum NaN_Behaviors : uint8_t {
 template <typename T>
 concept InfChecker = requires(T t, uint64_t bits) {
     { t(bits) } -> std::convertible_to<bool>;
-    { t.infBitPattern() } -> std::convertible_to<uint64_t>;
     { t.minNegInf() } -> std::convertible_to<uint64_t>;
     { t.minPosInf() } -> std::convertible_to<uint64_t>;
 };
@@ -112,15 +111,25 @@ concept InfChecker = requires(T t, uint64_t bits) {
  * 
  * A valid NaNChecker must:
  * - Be callable with a `uint64_t` returning a `bool` indicating if that bit pattern is NaN.
- * - Provide `qNanBitPattern()` and `sNanBitPattern()` that each return a `uint64_t`.
+ * - Provide `qNanBitPattern()` or `sNanBitPattern()` that each return a `uint64_t`.
  */
+// Subconcept: Has qNaN
 template <typename T>
-concept NaNChecker = requires(T t, uint64_t bits) {
-    { t(bits) } -> std::convertible_to<bool>;
+concept HasQNaN = requires(T t) {
     { t.qNanBitPattern() } -> std::convertible_to<uint64_t>;
+};
+
+// Subconcept: Has sNaN
+template <typename T>
+concept HasSNaN = requires(T t) {
     { t.sNanBitPattern() } -> std::convertible_to<uint64_t>;
 };
 
+// Main concept: callable with bits AND has at least one NaN type
+template <typename T>
+concept NaNChecker = requires(T t, uint64_t bits) {
+    { t(bits) } -> std::convertible_to<bool>;
+} && (HasQNaN<T> || HasSNaN<T>);
 /**
  * @struct FloatingPointParams
  * @brief Encapsulates the parameters and behavior for a floating-point format.
@@ -259,64 +268,6 @@ struct SingleNaNChecker {
     }
 };
 
-/**
- * @struct DoubleInfChecker
- * @brief Detects and produces bit patterns for infinities in 64-bit float (double) format.
- *
- * Infinity is indicated by exponent=0x7FF and fraction=0.
- */
-struct DoubleInfChecker {
-    bool operator()(uint64_t bits) const {
-        static constexpr uint64_t ExponentMask = 0x7FF0000000000000ULL;
-        static constexpr uint64_t FractionMask = 0x000FFFFFFFFFFFFFULL;
-        // Infinity => exponent=0x7FF, fraction=0
-        bool isInf = ((bits & ExponentMask) == ExponentMask) &&
-                     ((bits & FractionMask) == 0);
-        return isInf;
-    }
-
-    uint64_t infBitPattern() const {
-        // +∞ => 0x7FF0000000000000
-        return 0x7FF0000000000000ULL;
-    }
-
-    uint64_t minNegInf() const {
-        // -∞ => 0xFFF0000000000000
-        return 0xFFF0000000000000ULL;
-    }
-
-    uint64_t minPosInf() const {
-        // +∞ => 0x7FF0000000000000
-        return 0x7FF0000000000000ULL;
-    }
-};
-
-/**
- * @struct DoubleNaNChecker
- * @brief Detects and produces bit patterns for NaNs in 64-bit float (double) format.
- *
- * NaN is indicated by exponent=0x7FF and fraction!=0.
- */
-struct DoubleNaNChecker {
-    bool operator()(uint64_t bits) const {
-        static constexpr uint64_t ExponentMask = 0x7FF0000000000000ULL;
-        static constexpr uint64_t FractionMask = 0x000FFFFFFFFFFFFFULL;
-        // NaN => exponent=0x7FF, fraction!=0
-        bool isNaN = ((bits & ExponentMask) == ExponentMask) &&
-                     ((bits & FractionMask) != 0);
-        return isNaN;
-    }
-
-    uint64_t qNanBitPattern() const {
-        // quiet-NaN => 0x7FF8000000000000
-        return 0x7FF8000000000000ULL;
-    }
-
-    uint64_t sNanBitPattern() const {
-        // signaling-NaN => 0x7FF0000000000001
-        return 0x7FF0000000000001ULL;
-    }
-};
 
 /**
  * @brief Predefined parameters for a single-precision (32-bit) IEEE-like float.
@@ -333,19 +284,4 @@ inline constexpr FloatingPointParams<SingleInfChecker, SingleNaNChecker> singleP
     /* IsNaN         */ SingleNaNChecker{}
 );
 
-/**
- * @brief Predefined parameters for a double-precision (64-bit) IEEE-like float.
- */
-inline constexpr FloatingPointParams<DoubleInfChecker, DoubleNaNChecker> doublePrecisionParams(
-    /* bitwidth      */ 64,
-    /* mantissa_bits */ 52,
-    /* bias          */ 1023,
-    /* rounding_mode */ RoundToNearestEven,
-    /* OV_behavior   */ NonTrappingInf,
-    /* NA_behavior   */ QuietNaN,
-    /* is_signed     */ Signed,
-    /* IsInf         */ DoubleInfChecker{},
-    /* IsNaN         */ DoubleNaNChecker{}
-);
-
-} // namespace lo_float
+}

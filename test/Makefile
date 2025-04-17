@@ -24,3 +24,6 @@ LO_INT:
 EXPECTATION:
 	$(CXX) $(CXXFLAGS)  $(INCLUDE_PATH) stoch_expect_test.cpp -o test_expectation 
 
+PROBABILITY:
+	$(CXX) $(CXXFLAGS)  $(INCLUDE_PATH) stoch_prob_test.cpp -o test_probability
+
