@@ -52,6 +52,16 @@ constexpr FloatingPointParams param_fp32_sr1(
     /* stochastic_rounding_length = */ 1
 );
 
+constexpr FloatingPointParams param_fp32_rn(
+    32, 23, 127,
+    Rounding_Mode::RoundToNearestEven,  // a different rounding mode
+    Inf_Behaviors::NonTrappingInf,
+    NaN_Behaviors::QuietNaN,
+    Signedness::Signed,
+    IsInf_f32(),
+    IsNaN_f32()
+);
+
 constexpr FloatingPointParams param_fp32_sr5(
     32, 23, 127,
     Rounding_Mode::StochasticRounding,
@@ -78,6 +88,7 @@ constexpr FloatingPointParams param_fp32_sr10(
 using float32_sr1  = Templated_Float<param_fp32_sr1>;
 using float32_sr5  = Templated_Float<param_fp32_sr5>;
 using float32_sr10 = Templated_Float<param_fp32_sr10>;
+using float32_rn   = Templated_Float<param_fp32_rn>;  // RoundToNearestEven
 
 
 
@@ -98,10 +109,10 @@ double relative_error(double val, double ref, double eps = 1e-15)
 int main()
 {
     // Seed the library's *internal* RNG for stochastic rounding
-    lo_float::set_seed(1234);
+    lo_float::set_seed(248);
 
     // Also seed our local random generator for test input data
-    std::mt19937 rng(1234);
+    std::mt19937 rng(248);
     std::uniform_real_distribution<double> dist(-100.0, 100.0);
 
     int N = 5; // number of random pairs
@@ -110,6 +121,7 @@ int main()
     double sumErrAdd_sr1  = 0.0, sumErrSub_sr1  = 0.0, sumErrMul_sr1  = 0.0, sumErrDiv_sr1  = 0.0;
     double sumErrAdd_sr5  = 0.0, sumErrSub_sr5  = 0.0, sumErrMul_sr5  = 0.0, sumErrDiv_sr5  = 0.0;
     double sumErrAdd_sr10 = 0.0, sumErrSub_sr10 = 0.0, sumErrMul_sr10 = 0.0, sumErrDiv_sr10 = 0.0;
+    double sumErrAdd_rn   = 0.0, sumErrSub_rn   = 0.0, sumErrMul_rn   = 0.0, sumErrDiv_rn   = 0.0;
 
     double sumErrAdd_float = 0.0, sumErrSub_float = 0.0, sumErrMul_float = 0.0, sumErrDiv_float = 0.0;
 
@@ -149,6 +161,11 @@ std::cout << "float32_sr1 mantissa_bits : " << float32_sr1::mantissa_bits << "\n
         float32_sr10 x_sr10 = static_cast<float32_sr10>(x_d);
         float32_sr10 y_sr10 = static_cast<float32_sr10>(y_d);
 
+        float32_rn   x_rn   = static_cast<float32_rn>(x_d);
+        float32_rn   y_rn   = static_cast<float32_rn>(y_d);
+
+
+
         // Convert to native float
         float x_f = static_cast<float>(x_d);
         float y_f = static_cast<float>(y_d);
@@ -177,6 +194,11 @@ std::cout << "float32_sr1 mantissa_bits : " << float32_sr1::mantissa_bits << "\n
         double mul_sr10  = static_cast<double>(x_sr10 * y_sr10);
         double div_sr10  = static_cast<double>(x_sr10 / y_sr10);
 
+        double add_srrn   = static_cast<double>(x_rn + y_rn);
+        double sub_srrn   = static_cast<double>(x_rn - y_rn);
+        double mul_srrn   = static_cast<double>(x_rn * y_rn);
+        double div_srrn   = static_cast<double>(x_rn / y_rn);
+
         // Perform arithmetic in native float, then cast back to double
         double add_f   = static_cast<double>(x_f + y_f);
         double sub_f   = static_cast<double>(x_f - y_f);
@@ -190,12 +212,14 @@ std::cout << "float32_sr1 mantissa_bits : " << float32_sr1::mantissa_bits << "\n
             double re_sr1   = relative_error(add_sr1,  add_ref);
             double re_sr5   = relative_error(add_sr5,  add_ref);
             double re_sr10  = relative_error(add_sr10, add_ref);
+            double re_srrn  = relative_error(add_srrn, add_ref);
             double re_f     = relative_error(add_f,    add_ref);
 
             if(re_sr1 >= 0.0) {
                 sumErrAdd_sr1  += re_sr1;
                 sumErrAdd_sr5  += re_sr5;
                 sumErrAdd_sr10 += re_sr10;
+                sumErrAdd_rn   += re_srrn;
                 sumErrAdd_float += re_f;
                 countAdd++;
             }
@@ -206,6 +230,7 @@ std::cout << "float32_sr1 mantissa_bits : " << float32_sr1::mantissa_bits << "\n
             double re_sr1   = relative_error(sub_sr1,  sub_ref);
             double re_sr5   = relative_error(sub_sr5,  sub_ref);
             double re_sr10  = relative_error(sub_sr10, sub_ref);
+            double re_srrn  = relative_error(sub_srrn, sub_ref);
             double re_f     = relative_error(sub_f,    sub_ref);
 
             if(re_sr1 >= 0.0) {
@@ -213,6 +238,7 @@ std::cout << "float32_sr1 mantissa_bits : " << float32_sr1::mantissa_bits << "\n
                 sumErrSub_sr5  += re_sr5;
                 sumErrSub_sr10 += re_sr10;
                 sumErrSub_float += re_f;
+                sumErrSub_rn   += re_srrn;
                 countSub++;
             }
         }
@@ -223,12 +249,14 @@ std::cout << "float32_sr1 mantissa_bits : " << float32_sr1::mantissa_bits << "\n
             double re_sr5   = relative_error(mul_sr5,  mul_ref);
             double re_sr10  = relative_error(mul_sr10, mul_ref);
             double re_f     = relative_error(mul_f,    mul_ref);
+            double re_srrn  = relative_error(mul_srrn, mul_ref);
 
             if(re_sr1 >= 0.0) {
                 sumErrMul_sr1  += re_sr1;
                 sumErrMul_sr5  += re_sr5;
                 sumErrMul_sr10 += re_sr10;
                 sumErrMul_float += re_f;
+                sumErrMul_rn   += re_srrn;
                 countMul++;
             }
         }
@@ -239,12 +267,14 @@ std::cout << "float32_sr1 mantissa_bits : " << float32_sr1::mantissa_bits << "\n
             double re_sr5   = relative_error(div_sr5,  div_ref);
             double re_sr10  = relative_error(div_sr10, div_ref);
             double re_f     = relative_error(div_f,    div_ref);
+            double re_srrn  = relative_error(div_srrn, div_ref);
 
             if(re_sr1 >= 0.0) {
                 sumErrDiv_sr1  += re_sr1;
                 sumErrDiv_sr5  += re_sr5;
                 sumErrDiv_sr10 += re_sr10;
                 sumErrDiv_float += re_f;
+                sumErrDiv_rn   += re_srrn;
                 countDiv++;
             }
         }
@@ -274,30 +304,40 @@ std::cout << "float32_sr1 mantissa_bits : " << float32_sr1::mantissa_bits << "\n
     double meanErrSub_float = safeDivide(sumErrSub_float, countSub);
     double meanErrMul_float = safeDivide(sumErrMul_float, countMul);
     double meanErrDiv_float = safeDivide(sumErrDiv_float, countDiv);
-
+    
+    double meanErrAdd_rn    = safeDivide(sumErrAdd_rn,    countAdd);
+    double meanErrSub_rn    = safeDivide(sumErrSub_rn,    countSub);
+    double meanErrMul_rn    = safeDivide(sumErrMul_rn,    countMul);
+    double meanErrDiv_rn    = safeDivide(sumErrDiv_rn,    countDiv);
     // Print results
     std::cout << std::fixed << std::setprecision(8);
 
     std::cout << "\n=== Stochastic Rounding: length=1 ===\n";
-    std::cout << "Add mean REL error: " << meanErrAdd_sr1  << "\n";
+    std::cout << "Add mean REL error: " << meanErrAdd_sr1  <<  " log2 of error : " << log2f(meanErrAdd_sr1) << "\n";
     std::cout << "Sub mean REL error: " << meanErrSub_sr1  << "\n";
     std::cout << "Mul mean REL error: " << meanErrMul_sr1  << "\n";
     std::cout << "Div mean REL error: " << meanErrDiv_sr1  << "\n";
 
     std::cout << "\n=== Stochastic Rounding: length=5 ===\n";
-    std::cout << "Add mean REL error: " << meanErrAdd_sr5  << "\n";
+    std::cout << "Add mean REL error: " << meanErrAdd_sr5  <<  " log2 of error : " << log2f(meanErrAdd_sr5) << "\n";
     std::cout << "Sub mean REL error: " << meanErrSub_sr5  << "\n";
     std::cout << "Mul mean REL error: " << meanErrMul_sr5  << "\n";
     std::cout << "Div mean REL error: " << meanErrDiv_sr5  << "\n";
 
-    std::cout << "\n=== RoundToNearestEven: length=10 ===\n";
-    std::cout << "Add mean REL error: " << meanErrAdd_sr10 << "\n";
+    std::cout << "\n=== Stochastic Rounding: length=10 ===\n";
+    std::cout << "Add mean REL error: " << meanErrAdd_sr10 <<  " log2 of error : " << log2f(meanErrAdd_sr10) << "\n";
     std::cout << "Sub mean REL error: " << meanErrSub_sr10 << "\n";
     std::cout << "Mul mean REL error: " << meanErrMul_sr10 << "\n";
     std::cout << "Div mean REL error: " << meanErrDiv_sr10 << "\n";
 
+    std::cout << "\n=== RoundToNearestEven ===\n";
+    std::cout << "Add mean REL error: " << meanErrAdd_rn   <<  " log2 of error : " << log2f(meanErrAdd_rn) << "\n";
+    std::cout << "Sub mean REL error: " << meanErrSub_rn   << "\n";
+    std::cout << "Mul mean REL error: " << meanErrMul_rn   << "\n";
+    std::cout << "Div mean REL error: " << meanErrDiv_rn   << "\n";
+
     std::cout << "\n=== Native float (C++ built-in) ===\n";
-    std::cout << "Add mean REL error: " << meanErrAdd_float << "\n";
+    std::cout << "Add mean REL error: " << meanErrAdd_float <<  " log2 of error : " << log2f(meanErrAdd_float) << "\n";
     std::cout << "Sub mean REL error: " << meanErrSub_float << "\n";
     std::cout << "Mul mean REL error: " << meanErrMul_float << "\n";
     std::cout << "Div mean REL error: " << meanErrDiv_float << "\n";

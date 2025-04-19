@@ -27,3 +27,5 @@ EXPECTATION:
 PROBABILITY:
 	$(CXX) $(CXXFLAGS)  $(INCLUDE_PATH) stoch_prob_test.cpp -o test_probability
 
+EXCEPTIONS:
+	$(CXX) $(CXXFLAGS)  $(INCLUDE_PATH) exceptions_test.cpp -o test_exceptions

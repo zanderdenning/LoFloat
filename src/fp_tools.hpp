@@ -56,19 +56,23 @@ enum Signedness : uint8_t {
     Unsigned = 1
 };
 
+enum Unsigned_behavior : uint8_t {
+    /// @brief send negatives to zero
+    NegtoZero = 0,
+
+    /// @brief send negatives to NaN
+    NegtoNaN  = 1
+};
+
 /**
  * @enum Inf_Behaviors
  * @brief Describes how infinities behave or are handled by the format.
  */
 enum Inf_Behaviors : uint8_t {
     /// @brief Non-trapping infinities are allowed (like IEEE 754 behavior).
-    NonTrappingInf = 0,
-
+    Extended = 0,
     /// @brief Saturate to the maximum representable value instead of producing an infinity.
     Saturating = 1,
-
-    /// @brief Trapping infinities (reserved for future use or custom behavior).
-    Trapping = 2
 };
 
 /**
@@ -104,6 +108,16 @@ concept InfChecker = requires(T t, uint64_t bits) {
     { t.minNegInf() } -> std::convertible_to<uint64_t>;
     { t.minPosInf() } -> std::convertible_to<uint64_t>;
 };
+/**
+ * @concept negativeException
+ * @brief Functor to deal with negative numbers in the case of unsigned floats
+ */
+
+ template<typename T>
+ concept negativeException = requires(T t, uint64_t bits) {
+    { t.sendstoNaN() } -> std::convertible_to<bool>;
+    { t.sendtoZero() } -> std::convertible_to<bool>;
+ }
 
 /**
  * @concept NaNChecker
@@ -162,6 +176,9 @@ struct FloatingPointParams
     /// @brief Indicates whether this format is signed or unsigned (see @ref Signedness).
     Signedness is_signed;
 
+    ///  @brief enum to deal with how to deak with negatives for unsigned
+    Unsigned_behavior unsigned_behavior;
+
     /// @brief A functor for checking and generating infinite values (must satisfy @ref InfChecker).
     IsInfFunctor IsInf;
 
@@ -192,6 +209,7 @@ struct FloatingPointParams
         Inf_Behaviors ovb,
         NaN_Behaviors nab,
         Signedness is_signed,
+        Unsigned_behavior ub,
         IsInfFunctor IsInf,
         IsNaNFunctor IsNaN,
         int stoch_length = 0
@@ -203,6 +221,7 @@ struct FloatingPointParams
       , OV_behavior(ovb)
       , NA_behavior(nab)
       , is_signed(is_signed)
+      , unsigned_behavior(ub)
       , IsInf(IsInf)
       , IsNaN(IsNaN)
       , StochasticRoundingBits(stoch_length)

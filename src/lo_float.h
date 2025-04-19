@@ -28,6 +28,7 @@
 // #include "tlapack/base/scalar_type_traits.hpp"
 #include "fp_tools.hpp"
 #include "f_exceptions.hpp"
+#include "template_helpers.h"
 
 #ifdef __has_include
 # if __has_include(<version>)
@@ -87,6 +88,7 @@ namespace lo_float_internal {
     using AOpType = typename AOpTypeSelector<mantissa_bits>::type;
 
     // Helper sruct to decide underlying type for sqrt. Here we need 2*mantissa_bits + 2 mantissa bits in the simulation type
+
     template <int mantissa_bits>
     struct SqrtTypeSelector
     {
@@ -100,39 +102,6 @@ namespace lo_float_internal {
     //alias
     template <int mantissa_bits>
     using SqrtType = typename SqrtTypeSelector<mantissa_bits>::type;
-
-
-    template <class T, class = void>
-    struct get_mantissa_bits {
-        static constexpr int value = 53;    // default to double precision
-    };
-
-    // Partial specialization: used only if T::mantissa_bits is a valid expression.
-    template <class T>
-    struct get_mantissa_bits<T, std::void_t<decltype(T::mantissa_bits)>> {
-        static constexpr int value = T::mantissa_bits;
-    };
-
-    // Helper variable template for easier usage:
-    template <class T>
-    inline constexpr int get_mantissa_bits_v = get_mantissa_bits<T>::value;
-
-
-    // Helper struct to get stochastic_length
-    template <class T, class = void>
-    struct get_stochastic_length {
-        static constexpr int value = 0;    // default to 0
-    };
-
-    template <class T>
-    struct get_stochastic_length<T, std::void_t<decltype(T::stochastic_rounding_length)>> {
-        static constexpr int value = T::stochastic_rounding_length;
-    };
-
-    template <class T>
-    inline constexpr int get_stochastic_length_v = get_stochastic_length<T>::value;
-
-
 
 
 
@@ -209,7 +178,11 @@ namespace lo_float_internal {
             }
 
             explicit operator bool() const {
-                return (rep() & 0x7F) != 0;
+                return if constexpr (get_signedness_v<Derived> == Signedness::Signed) {
+                    return (rep() & 0x7F) != 0;
+                } else {
+                    return rep() != 0;
+                }
             }
 
         // define underlying float before defining arithemtic types
@@ -306,6 +279,12 @@ namespace lo_float_internal {
         UnderlyingType rep_;
         using Signed_type = typename std::make_signed<UnderlyingType>::type;
 
+        template <typename T>
+        concept SignedFloat = (get_signedness_v<T> == lo_float::Signedness::Signed);
+
+        template <typename T>
+        concept UnsignedFloat = (get_signedness_v<T> == lo_float::Signedness::Unsigned);
+
         // Helper for compare:
         static __attribute__((always_inline)) inline  std::pair<UnderlyingType, UnderlyingType>
         SignAndMagnitude(Derived x) {
@@ -321,7 +300,7 @@ namespace lo_float_internal {
             return magnitude ^ (static_cast<Signed_type>(sign) < 0 ? -1 : 0);
         }
 
-        // Compare function
+        // Compare function. For signed floats tak eTwos complement path. For unsigned just compare represntations
         template<typename T>
         __attribute__((always_inline)) inline  friend constexpr Ordering Compare(
             const Derived& lhs, const T& rhs) {
@@ -337,6 +316,23 @@ namespace lo_float_internal {
             Signed_type rhs_tc = SignAndMagnitudeToTwosComplement(rhs_sign, rhs_mag);
             if (lhs_tc < rhs_tc) return kLess;
             if (lhs_tc > rhs_tc) return kGreater;
+            return kEquivalent;
+        }
+
+        template<UnsignedFloat T>
+        __attribute__((always_inline)) inline  friend constexpr Ordering Compare(
+            const Derived& lhs, const T& rhs)
+            requires UnsignedFloat<Derived> {
+            if (std::isnan(lhs) || std::isnan(rhs)) {
+                return kUnordered;
+            }
+            auto [lhs_sign, lhs_mag] = SignAndMagnitude(lhs);
+            auto [rhs_sign, rhs_mag] = SignAndMagnitude(rhs);
+            if (lhs_mag == 0 && rhs_mag == 0) {
+                return kEquivalent;
+            }
+            if (lhs_mag < rhs_mag) return kLess;
+            if (lhs_mag > rhs_mag) return kGreater;
             return kEquivalent;
         }
     }; //lo_float_base
@@ -402,6 +398,8 @@ namespace lo_float_internal {
 
             static constexpr Signedness is_signed = Fp.is_signed;
 
+            static constexpr Unsigned_behavior unsigned_behavior = Fp.unsigned_behavior;
+
             static constexpr  int bias = Fp.bias;
 
             static constexpr int mantissa_bits = Fp.mantissa_bits;
@@ -432,6 +430,8 @@ namespace lo_float_internal {
     static constexpr int bitwidth = Fp.bitwidth;
 
     static constexpr Signedness is_signed = Fp.is_signed;
+
+    static constexpr Unsigned_behavior unsigned_behavior = Fp.unsigned_behavior;
 
     static constexpr  int bias = Fp.bias;
 
@@ -1068,11 +1068,14 @@ struct TraitsBase {
   using BitsType = GetUnsignedInteger<sizeof(Float)>;
   static constexpr int kBits = sizeof(Float) * CHAR_BIT;
   static constexpr int kMantissaBits = std::numeric_limits<Float>::digits - 1;
-  static constexpr int kExponentBits = kBits - kMantissaBits - 1;
-  static constexpr BitsType kExponentMask = ((BitsType{1} << kExponentBits) - 1)
-                                            << kMantissaBits;
+  static constexpr int kExponentBits = get_signedness_v<Float> == Signedness::Signed
+                                ? Fp.bitwidth - Fp.mantissa_bits - 1
+                                : Fp.bitwidth - Fp.mantissa_bits;
+  static constexpr BitsType kExponentMask = get_signedness_v<Templated_Float<Fp>> == Signedness::Signed
+                                ? (BitsType{1} << (kExponentBits - 1)) - 1
+                                : (BitsType{1} << kExponentBits) - 1;
   static constexpr BitsType kMantissaMask = (BitsType{1} << kMantissaBits) - 1;
-  static constexpr int kExponentBias = (1 << (kExponentBits - 1)) - 1;
+  static constexpr int kExponentBias = std::numeric_limits<Float>::kExponentBias;
 };
 
 
@@ -1084,10 +1087,12 @@ struct Traits<Templated_Float<Fp>> : public TraitsBase<Templated_Float<Fp>> {
     using Base = TraitsBase<Templated_Float<Fp>>;
     static constexpr int kBits = Fp.bitwidth;
     static constexpr int kMantissaBits = Fp.mantissa_bits;
-    static constexpr int kExponentBits = kBits - kMantissaBits - 1;
+    static constexpr int kExponentBits = get_signedness_v<Templated_Float<Fp>> == Signedness::Signed
+                                             ? Fp.bitwidth - Fp.mantissa_bits - 1
+                                             : Fp.bitwidth - Fp.mantissa_bits;
     static constexpr int kExponentBias = Fp.bias;
 };
-
+ 
 template <>
 struct Traits<float> : public TraitsBase<float> {
   static constexpr int kBits = sizeof(float) * CHAR_BIT;
@@ -1123,7 +1128,7 @@ constexpr inline Bits RoundBitsToNearestEven(Bits bits, int roundoff) {
   return bits + bias;
 }
 
-//template to return one int type larger than input int type. Eg : uint32_t -> uint64_t
+
 
 
 template <typename Bits>
@@ -1234,9 +1239,19 @@ struct ConvertImpl<From, To,
 //need to change the bool to an enum to support other rounding modes
   static  inline To run(const From& from, Rounding_Mode round_mode = Rounding_Mode::RoundToNearestEven) {
     // Shift bits to destination type, without sign bit.
-    const bool from_sign_bit =
+    const bool from_sign_bit = get_signedness_v<From> == Signedness::Unsigned ? false :
         std::bit_cast<FromBits>(from) >> (kFromBits - 1);
-
+    
+    if(get_signedness_v<To> == Signedness::Unsigned && from_sign_bit) {
+        if( get_unsigned_behavior_v<To> == Unsigned_behavior::NegtoZero) {
+            return To{};
+        } else {
+            if( get_unsigned_behavior_v<To> == Unsigned_behavior::NegtoNaN) {
+                
+            }
+            return std::numeric_limits<To>::
+        }
+    }
     const FromBits from_bits =
         std::bit_cast<FromBits>(std::abs(from));
 
@@ -1301,7 +1316,6 @@ struct ConvertImpl<From, To,
                     break;
                 default :
                     bits = RoundBitsToNearestEven(bits, -kDigitShift);
-
             } 
             
           
