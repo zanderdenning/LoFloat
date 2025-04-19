@@ -29,3 +29,6 @@ PROBABILITY:
 
 EXCEPTIONS:
 	$(CXX) $(CXXFLAGS)  $(INCLUDE_PATH) exceptions_test.cpp -o test_exceptions
+
+UNSIGNED:
+	$(CXX) $(CXXFLAGS)  $(INCLUDE_PATH) test_unsigned.cpp -o test_unsigned

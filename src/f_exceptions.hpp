@@ -11,6 +11,7 @@
 #include <iostream>
 #include <limits>
 #include <mutex>
+#include <string>
 
 
 //need some kind of functors that tell us how to deal with traps. Also need some global flags that are visible to users
@@ -41,107 +42,127 @@ namespace lo_float {
             AllExceptions = DivisionByZero | Overflow | Underflow | InvalidOperation | Inexact
         };
 
-        // trap handler alias 
-        using TrapHandler = void(*)(LF_exception_flags) noexcept;
-
-        
-
-
-
-
-
-        struct Environment {
-            #ifdef MLT 
-            static std::atomic<uint8_t> exception_flags = static_cast<uint8_t>(NoException);
-            #else
-            uint8_t exception_flags;
-            #endif
-            uint8_t trapping_flags;    //trapping flags set to 0 
-
-            Environment() : exception_flags(static_cast<uint8_t>(NoException)), trapping_flags(static_cast<uint8_t>(NoException)) {}
-
-
+        std::string exception_names[] = {
+            "NoException",
+            "DivisionByZero",
+            "Overflow",
+            "Underflow",
+            "InvalidOperation",
+            "Inexact"
         };
 
 
 
-
-        // Function to set exception flags
-        void set_exception_flags(LF_exception_flags flags) {
-            exception_flags |=  static_cast<uint8_t>(flags);
-        }
-
-        void clear_exception_flags(LF_exception_flags flags) {
-            exception_flags &= ~static_cast<uint8_t>(flags);
+        void DefaultTrapHandler(LF_exception_flags f) noexcept {
+                std::cerr << "[Default Trap] Exception (s) : ";
+                for(int i = 0; i < 5; i++) {
+                    if ((uint8_t)f & (1 << i)) {
+                        std::cerr << exception_names[i] << " ";
+                    }
+                }
+                std::cerr << "\n";
+                std::abort();
         }
         
-        void reset_exception_flags() {
-            exception_flags = static_cast<uint8_t>(NoException);
-        }
-
-        
-
-        // default implementation: print + abort  ───────────────────────────────────
-        [[noreturn]] inline void default_trap(LF_exception_flags f) noexcept
-        {
-            std::fputs("lo_float trap: ", stderr);
-            std::bitset<8> bits(static_cast<std::uint8_t>(f));
-            std::fprintf(stderr, "flags=%s | thread=%zu\n",
-                        bits.to_string().c_str(),
-                        static_cast<size_t>(std::hash<std::thread::id>{}(
-                                std::this_thread::get_id())));
-            std::abort();
-        }
-
-        
-        inline std::atomic<TrapHandler> current_trap_handler{ default_trap };
-
-        // API                                                                       ─
-        template<Trap H>
-        void set_trap_handler(H&& h) noexcept
-        {
-            current_trap_handler.store(+h, std::memory_order_release);
-        }
-
-        [[nodiscard]] inline TrapHandler get_trap_handler() noexcept
-        {
-            return current_trap_handler.load(std::memory_order_acquire);
-        }
-
-        // invoke helper: never returns                                              ─
-        [[noreturn]]
-        inline void raise_trap(LF_exception_flags f) noexcept
-        {
-            get_trap_handler()(f);
-            std::terminate();               // belt & braces if user returns
-        }
-
-
-
-
-        void print_exception_flags() {
-            if (exception_flags == NoException) {
-                std::cout << "No exceptions\n";
-            } else {
-                std::cout << "Exceptions: ";
-                if (exception_flags & DivisionByZero) {
-                    std::cout << "DivisionByZero ";
+        struct TrapHandlerRegistry {
+            public:
+                using TrapHandler = void(*)(LF_exception_flags);
+    
+                TrapHandler custom_handler = nullptr;
+                TrapHandler default_handler = nullptr;
+                bool use_custom_handler = false;
+    
+                TrapHandlerRegistry()
+                    : default_handler(&DefaultTrapHandler) {}
+    
+                void set_custom_handler(TrapHandler handler) {
+                    custom_handler = handler;
+                    use_custom_handler = true;
                 }
-                if (exception_flags & Overflow) {
-                    std::cout << "Overflow ";
+    
+                void reset_custom_handler() {
+                    custom_handler = nullptr;
+                    use_custom_handler = false;
                 }
-                if (exception_flags & Underflow) {
-                    std::cout << "Underflow ";
+    
+                void raise(LF_exception_flags f) const {
+                    if (use_custom_handler && custom_handler) {
+                        custom_handler(f);
+                    } else if (default_handler) {
+                        default_handler(f);
+                    } else {
+                        std::terminate(); // should not happen
+                    }
                 }
-                if (exception_flags & InvalidOperation) {
-                    std::cout << "InvalidOperation ";
+            };
+    
+            struct Environment {
+                uint8_t exception_flags;
+                uint8_t trapping_flags;
+                TrapHandlerRegistry trap_handler_registry;
+    
+                Environment()
+                    : exception_flags(static_cast<uint8_t>(NoException)),
+                      trapping_flags(static_cast<uint8_t>(NoException)) {}
+    
+                void set_exception_flags(LF_exception_flags flags) {
+                    exception_flags |= static_cast<uint8_t>(flags);
+                    check_and_trap(flags);
                 }
-                if (exception_flags & Inexact) {
-                    std::cout << "Inexact ";
+    
+                void set_trapping_flags(LF_exception_flags flags) {
+                    trapping_flags |= static_cast<uint8_t>(flags);
                 }
-                std::cout << "\n";
-            }
-        }
+    
+                void clear_exception_flags(LF_exception_flags flags) {
+                    exception_flags &= ~static_cast<uint8_t>(flags);
+                }
+    
+                void clear_trapping_flags(LF_exception_flags flags) {
+                    trapping_flags &= ~static_cast<uint8_t>(flags);
+                }
+    
+                void reset_exception_flags() {
+                    exception_flags = static_cast<uint8_t>(NoException);
+                }
+    
+                void reset_trapping_flags() {
+                    trapping_flags = static_cast<uint8_t>(NoException);
+                }
+    
+                void print_flags() const {
+                    std::cout << "Exception Flags: ";
+                    for (int i = 0; i < 5; ++i) {
+                        if (exception_flags & (1 << i)) {
+                            std::cout << exception_names[i] << " ";
+                        }
+                    }
+                    std::cout << "\n";
+                }
+    
+                void check_and_trap(LF_exception_flags flags) {
+                    uint8_t trap_mask = static_cast<uint8_t>(trapping_flags);
+                    uint8_t active_flags = static_cast<uint8_t>(flags);
+    
+                    if (trap_mask & active_flags) {
+                        trap_handler_registry.raise(static_cast<LF_exception_flags>(trap_mask & active_flags));
+                    }
+                }
+    
+                void raise_if_enabled(LF_exception_flags f) {
+                    if (trapping_flags & static_cast<uint8_t>(f)) {
+                        trap_handler_registry.raise(f);
+                    }
+                }
+    
+                uint8_t get_exception_flags() const {
+                    return exception_flags;
+                }
+    
+                uint8_t get_trapping_flags() const {
+                    return trapping_flags;
+                }
+            };
 
        
 

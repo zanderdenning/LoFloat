@@ -319,21 +319,22 @@ namespace lo_float_internal {
             return kEquivalent;
         }
 
-        template<UnsignedFloat T>
+        template<typename T>
         __attribute__((always_inline)) inline  friend constexpr Ordering Compare(
             const Derived& lhs, const T& rhs)
             requires UnsignedFloat<Derived> {
             if (std::isnan(lhs) || std::isnan(rhs)) {
                 return kUnordered;
             }
-            auto [lhs_sign, lhs_mag] = SignAndMagnitude(lhs);
-            auto [rhs_sign, rhs_mag] = SignAndMagnitude(rhs);
-            if (lhs_mag == 0 && rhs_mag == 0) {
+            auto lhs_rep = lhs.rep();
+            auto rhs_rep = rhs.rep();
+            if (lhs.rep == rhs.rep()) {
                 return kEquivalent;
+            } else if (lhs_rep < rhs_rep) {
+                return kLess;
+            } else {
+                return kGreater;
             }
-            if (lhs_mag < rhs_mag) return kLess;
-            if (lhs_mag > rhs_mag) return kGreater;
-            return kEquivalent;
         }
     }; //lo_float_base
 
@@ -375,10 +376,28 @@ namespace lo_float_internal {
         public:
 
             explicit  operator bool() const {
-                return (this->rep() & ((1 << Fp.bitwidth) - 1)) != 0;
+                if (get_signedness_v<Derived> == Signedness::Signed) {
+                    return (this->rep() & ((1 << (Fp.bitwidth - 1)) - 1)) != 0;
+                } else {
+                    return this->rep() != 0;
+                }
             }
             constexpr Derived operator-() const {
-                return Base::FromRep(static_cast<UType>(this->rep() ^ (1 << (Fp.bitwidth - 1))));
+                if (get_signedness_v<Derived> == Signedness::Signed) {
+                    return Base::FromRep(static_cast<UType>(this->rep() ^ (1 << (Fp.bitwidth - 1))));
+                } else {
+                    if(get_unsigned_behavior_v<Derived> == Unsigned_behavior::NegtoZero) {
+                        return Base::FromRep(0);
+                    } else {
+                        if(Derived::NaN_Behavior == NaN_Behaviors::QuietNaN) {
+                            return Base::FromRep(Derived::NaNChecker::qNanBitPattern());
+                        } else {
+                            //need to signal exception here
+                            return Base::FromRep(Derived::NaNChecker::sNanBitPattern());
+                        }
+                    }
+
+                }
             }
 
             Derived operator-(const Derived& other) const {
@@ -809,7 +828,11 @@ struct numeric_limits_flexible {
                 return Templated_Float<Fp>::FromRep((1 << (Fp.mantissa_bits)));
               }
               static constexpr Templated_Float<Fp> lowest() {
-                return Templated_Float<Fp>::FromRep(Fp.IsInf.minNegInf() - 1);
+                if (Fp.is_signed == lo_float::Signedness::Signed) {
+                    return Templated_Float<Fp>::FromRep(Fp.IsInf.minNegInf() - 1);
+                } else {
+                  return Templated_Float<Fp>::FromRep(0);
+                }
               }
               static constexpr Templated_Float<Fp> max() {
                 return Templated_Float<Fp>::FromRep(Fp.IsInf.minPosInf() - 1);
@@ -857,6 +880,7 @@ void set_seed(unsigned int seedVal)
 namespace lo_float {
     namespace lo_float_internal {
 
+        //dont need to change this for signed vs unsigned
 template<FloatingPointParams Fp>
 constexpr inline Templated_Float<Fp> abs(const Templated_Float<Fp>& a) {
     return Templated_Float<Fp>::FromRep(a.rep() & ((1 << (Fp.bitwidth - 1)) - 1));
@@ -1246,12 +1270,10 @@ struct ConvertImpl<From, To,
         if( get_unsigned_behavior_v<To> == Unsigned_behavior::NegtoZero) {
             return To{};
         } else {
-            if( get_unsigned_behavior_v<To> == Unsigned_behavior::NegtoNaN) {
-                
+            return std::numeric_limits<To>::quiet_NaN();
             }
-            return std::numeric_limits<To>::
         }
-    }
+    
     const FromBits from_bits =
         std::bit_cast<FromBits>(std::abs(from));
 
