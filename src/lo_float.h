@@ -3,7 +3,7 @@
 */
 #ifndef ML_DTYPES_FLOAT6_4_H_
 #define ML_DTYPES_FLOAT6_4_H_
-#define ENABLE_EXCEPT
+//#define ENABLE_EXCEPT
 //#define STOCHASTIC_ROUND
 //#define STOCHASTIC_ARITH
 #define LEN 13  
@@ -51,6 +51,8 @@
 namespace lo_float {
 namespace lo_float_internal {
 
+    //declaration of std::abs for ADL 
+    using std::abs;
 
     //forward decl of classes
     template<typename Derived, typename UnderlyingType>
@@ -72,8 +74,8 @@ namespace lo_float_internal {
     mt.seed(a);
   }
 
-  #ifndef ENABLE_EXCEPT
-    Enviroment f_env();
+  #ifdef ENABLE_EXCEPT
+    Environment f_env{};
   #endif
 
     // @brief helper struct that picks underlying float that should be used for the simulation. We require 2*mantissa_bits + 1 mantissa bits in the simulation type 
@@ -146,6 +148,9 @@ namespace lo_float_internal {
 
         explicit lo_float_base(float f32)
             : lo_float_base(ConvertFrom(f32).rep(), ConstructFromRepTag{}) {}
+        
+        explicit lo_float_base(const int i32)
+            : lo_float_base(ConvertFrom(static_cast<double>(i32)).rep(), ConstructFromRepTag{}) {}
 
         // CRTP helpers
         constexpr const Derived& derived() const {
@@ -191,6 +196,25 @@ namespace lo_float_internal {
 
         // define underlying float before defining arithemtic types
         using UnderlyingFloat = AOpType<get_mantissa_bits_v<Derived>>;
+        
+        
+        __attribute__((always_inline)) Derived operator-() const {
+            if (get_signedness_v<Derived> == Signedness::Signed) {
+                return FromRep(static_cast<UnderlyingType>(this->rep() ^ (1 << (get_bitwidth_v<Derived>- 1))));
+            } else {
+                if(get_unsigned_behavior_v<Derived> == Unsigned_behavior::NegtoZero) {
+                    return FromRep(0);
+                } else {
+                    if(get_NaN_Behavior_v<Derived> == NaN_Behaviors::QuietNaN) {
+                        return FromRep(Derived::IsNaNFunctor.qNanBitPattern());
+                    } else {
+                        //need to signal exception here
+                        return FromRep(Derived::IsNaNFunctor.sNanBitPattern());
+                    }
+                }
+            }
+        }
+
         __attribute__((always_inline)) inline  Derived
         operator+(const Derived& other) const {
             return Derived{UnderlyingFloat{derived()} + UnderlyingFloat{other}};
@@ -210,10 +234,10 @@ namespace lo_float_internal {
         __attribute__((always_inline)) inline  Derived
         operator/(const Derived& other) const {
             #ifdef ENABLE_EXCEPT
-            if constexpr (!other) {
-                f_env.set_exception(LF_exception_flags::DivisionByZero);
-                if constexpr (!derived()) {
-                   f_env.set_exception(LF_exception_flags::InvalidOperation);
+            if (!other) {
+                f_env.set_exception_flag(LF_exception_flags::DivisionByZero);
+                if (!derived()) {
+                   f_env.set_exception_flag(LF_exception_flags::InvalidOperation);
                 }
             }
             #endif
@@ -282,9 +306,9 @@ namespace lo_float_internal {
             const Derived& other) {
             #ifdef ENABLE_EXCEPT
             if constexpr (!other) {
-                f_env.set_exception(LF_exception_flags::DivisionByZero);
+                f_env.set_exception_flag(LF_exception_flags::DivisionByZero);
                 if constexpr (!derived()) {
-                   f_env.set_exception(LF_exception_flags::InvalidOperation);
+                   f_env.set_exception_flag(LF_exception_flags::InvalidOperation);
                 }
             }
             #endif
@@ -303,7 +327,7 @@ namespace lo_float_internal {
         static __attribute__((always_inline)) inline  std::pair<UnderlyingType, UnderlyingType>
         SignAndMagnitude(Derived x) {
             const UnderlyingType x_abs_bits =
-                std::bit_cast<UnderlyingType>(std::abs(x));
+                std::bit_cast<UnderlyingType>(abs(x));
             const UnderlyingType x_bits = std::bit_cast<UnderlyingType>(x);
             const UnderlyingType x_sign = x_bits ^ x_abs_bits;
             return {x_sign, x_abs_bits};
@@ -318,7 +342,7 @@ namespace lo_float_internal {
         template<typename T>
         __attribute__((always_inline)) inline  friend constexpr Ordering Compare(
             const Derived& lhs, const T& rhs) {
-            if (std::isnan(lhs) || std::isnan(rhs)) {
+            if (isnan(lhs) || isnan(rhs)) {
                 return kUnordered;
             }
             auto [lhs_sign, lhs_mag] = SignAndMagnitude(lhs);
@@ -379,27 +403,10 @@ namespace lo_float_internal {
                     return this->rep() != 0;
                 }
             }
-            constexpr Derived operator-() const {
-                if (get_signedness_v<Derived> == Signedness::Signed) {
-                    return Base::FromRep(static_cast<UType>(this->rep() ^ (1 << (Fp.bitwidth - 1))));
-                } else {
-                    if(get_unsigned_behavior_v<Derived> == Unsigned_behavior::NegtoZero) {
-                        return Base::FromRep(0);
-                    } else {
-                        if(Derived::NaN_Behavior == NaN_Behaviors::QuietNaN) {
-                            return Base::FromRep(Derived::NaNChecker::qNanBitPattern());
-                        } else {
-                            //need to signal exception here
-                            return Base::FromRep(Derived::NaNChecker::sNanBitPattern());
-                        }
-                    }
+            
 
-                }
-            }
+            
 
-            Derived operator-(const Derived& other) const {
-                return Base::operator-(other);
-            }
             //declare structs/enums from template arg as static fields so that they can be accessed later
             static constexpr NaNChecker auto IsNaNFunctor = Fp.IsNaN;
 
@@ -1280,7 +1287,7 @@ struct ConvertImpl<From, To,
     if(get_signedness_v<To> == Signedness::Unsigned && from_sign_bit) {
         //set underflow flag
         #ifdef ENABLE_EXCEPT
-        f_env.set_exeption_flags(LF_exception_flags::Underflow);
+        f_env.set_exception_flag(LF_exception_flags::Underflow);
         #endif
         if( get_unsigned_behavior_v<To> == Unsigned_behavior::NegtoZero) {
             return To{};
@@ -1292,16 +1299,16 @@ struct ConvertImpl<From, To,
             } else {
                 //trapping NaN - call trap
                 #ifdef ENABLE_EXCEPT
-                f_env.set_exeption_flags(LF_exception_flags::Invalid);
-                //call trap
-                f_env.raise();
+                f_env.set_exception_flag(LF_exception_flags::InvalidOperation);
                 #endif
                 return std::numeric_limits<To>::signaling_NaN();
             }
         }
+    }
     
     const FromBits from_bits =
-        std::bit_cast<FromBits>(std::abs(from));
+        std::bit_cast<FromBits>(abs(from));
+    
 
     // Special values, preserving sign.
     if (std::isinf(from)) {
@@ -1482,7 +1489,7 @@ struct ConvertImpl<From, To,
         // Overflowed values map to highest or infinity depending on kSaturate.
 
         #ifdef ENABLE_EXCEPT
-            f_env.set_exeption_flags(LF_exception_flags::Overflow);                    
+            f_env.set_exception_flag(LF_exception_flags::Overflow);                    
         #endif
         if(std::numeric_limits<To>::has_infinity) {
           to = from_sign_bit ? -std::numeric_limits<To>::infinity()
@@ -1496,28 +1503,24 @@ struct ConvertImpl<From, To,
     // Insert sign bit.
     return from_sign_bit ? -to : to;
   }
+};
 
   
-};
+
 
 
 
 template <typename Derived, typename UnderlyingType>
 template <typename From>
  Derived lo_float_base<Derived, UnderlyingType>::ConvertFrom(const From& from) {
-  return ConvertImpl<From, Derived>::run(from, Derived::rounding_mode);
+  return ConvertImpl<From, Derived>::run(from, get_rounding_mode_v<Derived>);
 }
 
 template <typename Derived, typename UnderlyingType>
 template <typename To>
  To lo_float_base<Derived, UnderlyingType>::ConvertTo(const Derived& from) {
-
-  return ConvertImpl<Derived, To>::run(from, Derived::rounding_mode);
-
+  return ConvertImpl<Derived, To>::run(from, get_rounding_mode_v<To>);
 }
-
-
-
 
 
 

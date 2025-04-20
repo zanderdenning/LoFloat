@@ -162,6 +162,33 @@ template <class T>
 inline constexpr int get_bias_v = get_bias<T>::value;
 
 
-        
+// pointers to NaN and Inf checkers 
+
+template <class T, class = void>
+struct get_IsNaN {                              // default: no NaN
+    static constexpr auto value = nullptr;
+};
+
+template <class T>
+struct get_IsNaN<T, std::void_t<decltype(T::IsNaNFunctor)>> {
+    static constexpr auto value = &T::IsNaNFunctor;
+};
+
+template <class T>
+inline constexpr auto get_IsNaN_v = get_IsNaN<T>::value;
+
+template <class T, class = void>
+struct get_IsInf {                              // default: no Inf
+    static constexpr auto value = nullptr;
+};
+
+template <class T>
+struct get_IsInf<T, std::void_t<decltype(T::IsInfFunctor)>> {
+    static constexpr auto value = &T::IsInfFunctor;
+};
+
+template <class T>
+inline constexpr auto get_IsInf_v = get_IsInf<T>::value;
+
 }   //namespace lo_float_internal
 }   //namespace lo_float
