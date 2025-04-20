@@ -86,12 +86,10 @@ namespace lo_float {
                 }
     
                 void raise(LF_exception_flags f) const {
-                    if (use_custom_handler && custom_handler) {
+                    if (use_custom_handler) {
                         custom_handler(f);
-                    } else if (default_handler) {
-                        default_handler(f);
                     } else {
-                        std::terminate(); // should not happen
+                        default_handler(f);
                     }
                 }
             };
@@ -104,21 +102,30 @@ namespace lo_float {
                 Environment()
                     : exception_flags(static_cast<uint8_t>(NoException)),
                       trapping_flags(static_cast<uint8_t>(NoException)) {}
-    
-                void set_exception_flags(LF_exception_flags flags) {
-                    exception_flags |= static_cast<uint8_t>(flags);
-                    check_and_trap(flags);
+
+                void check_and_trap(uint8_t flags) {
+                    uint8_t trap_mask = static_cast<uint8_t>(trapping_flags);
+                    uint8_t active_flags = static_cast<uint8_t>(flags);
+        
+                    if (trap_mask & active_flags) {
+                        trap_handler_registry.raise(static_cast<LF_exception_flags>(trap_mask & active_flags));
+                    }
                 }
     
-                void set_trapping_flags(LF_exception_flags flags) {
+                void set_exception_flag(LF_exception_flags flags) {
+                    exception_flags |= static_cast<uint8_t>(flags);
+                    check_and_trap(exception_flags);
+                }
+    
+                void set_trapping_flag(LF_exception_flags flags) {
                     trapping_flags |= static_cast<uint8_t>(flags);
                 }
     
-                void clear_exception_flags(LF_exception_flags flags) {
+                void clear_exception_flag(LF_exception_flags flags) {
                     exception_flags &= ~static_cast<uint8_t>(flags);
                 }
     
-                void clear_trapping_flags(LF_exception_flags flags) {
+                void clear_trapping_flag(LF_exception_flags flags) {
                     trapping_flags &= ~static_cast<uint8_t>(flags);
                 }
     
@@ -140,14 +147,7 @@ namespace lo_float {
                     std::cout << "\n";
                 }
     
-                void check_and_trap(LF_exception_flags flags) {
-                    uint8_t trap_mask = static_cast<uint8_t>(trapping_flags);
-                    uint8_t active_flags = static_cast<uint8_t>(flags);
-    
-                    if (trap_mask & active_flags) {
-                        trap_handler_registry.raise(static_cast<LF_exception_flags>(trap_mask & active_flags));
-                    }
-                }
+
     
                 void raise_if_enabled(LF_exception_flags f) {
                     if (trapping_flags & static_cast<uint8_t>(f)) {
@@ -162,6 +162,9 @@ namespace lo_float {
                 uint8_t get_trapping_flags() const {
                     return trapping_flags;
                 }
+                
+
+                //specialize for 
             };
 
        

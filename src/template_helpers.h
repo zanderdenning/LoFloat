@@ -97,7 +97,7 @@ inline constexpr lo_float::NaN_Behaviors get_NaN_Behavior_v =
 template <class T, class = void>
 struct get_overflow_behavior {                   // sensible default
     static constexpr lo_float::Inf_Behaviors value =
-        lo_float::Inf_Behaviors::Inf;
+        lo_float::Inf_Behaviors::Extended;
 };
 
 template <class T>
@@ -117,7 +117,7 @@ inline constexpr lo_float::Inf_Behaviors get_overflow_behavior_v =
 template <class T, class = void>
 struct get_rounding_mode {                       // default: ties‑to‑even
     static constexpr lo_float::Rounding_Mode value =
-        lo_float::Rounding_Mode::NearestTiesToEven;
+        lo_float::Rounding_Mode::RoundToNearestEven;
 };
 
 template <class T>

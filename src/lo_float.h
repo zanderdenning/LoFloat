@@ -3,6 +3,7 @@
 */
 #ifndef ML_DTYPES_FLOAT6_4_H_
 #define ML_DTYPES_FLOAT6_4_H_
+#define ENABLE_EXCEPT
 //#define STOCHASTIC_ROUND
 //#define STOCHASTIC_ARITH
 #define LEN 13  
@@ -26,9 +27,9 @@
 // #include "tlapack/base/scalar_type_traits.hpp"
 // #include "tlapack/base/types.hpp"
 // #include "tlapack/base/scalar_type_traits.hpp"
-#include "fp_tools.hpp"
-#include "f_exceptions.hpp"
-#include "template_helpers.h"
+#include "fp_tools.hpp"     //structs and concepts to define Floating Point params
+#include "f_exceptions.hpp" //global env for exceptions
+#include "template_helpers.h"   //helper templataes
 
 #ifdef __has_include
 # if __has_include(<version>)
@@ -64,13 +65,16 @@ namespace lo_float_internal {
 
 
 
-
   static std::mt19937 mt(static_cast<int>(time(nullptr)));
 
   //global function to set seed
   void set_seed(int a) {
     mt.seed(a);
   }
+
+  #ifndef ENABLE_EXCEPT
+    Enviroment f_env();
+  #endif
 
     // @brief helper struct that picks underlying float that should be used for the simulation. We require 2*mantissa_bits + 1 mantissa bits in the simulation type 
     template <int N>
@@ -178,7 +182,7 @@ namespace lo_float_internal {
             }
 
             explicit operator bool() const {
-                return if constexpr (get_signedness_v<Derived> == Signedness::Signed) {
+                if constexpr (get_signedness_v<Derived> == Signedness::Signed) {
                     return (rep() & 0x7F) != 0;
                 } else {
                     return rep() != 0;
@@ -205,6 +209,14 @@ namespace lo_float_internal {
         }
         __attribute__((always_inline)) inline  Derived
         operator/(const Derived& other) const {
+            #ifdef ENABLE_EXCEPT
+            if constexpr (!other) {
+                f_env.set_exception(LF_exception_flags::DivisionByZero);
+                if constexpr (!derived()) {
+                   f_env.set_exception(LF_exception_flags::InvalidOperation);
+                }
+            }
+            #endif
             return Derived{UnderlyingFloat{derived()} / UnderlyingFloat{other}};
         }
 
@@ -268,6 +280,14 @@ namespace lo_float_internal {
         }
         __attribute__((always_inline)) inline  Derived& operator/=(
             const Derived& other) {
+            #ifdef ENABLE_EXCEPT
+            if constexpr (!other) {
+                f_env.set_exception(LF_exception_flags::DivisionByZero);
+                if constexpr (!derived()) {
+                   f_env.set_exception(LF_exception_flags::InvalidOperation);
+                }
+            }
+            #endif
             derived() = derived() / other;
             return derived();
         }
@@ -278,12 +298,6 @@ namespace lo_float_internal {
         //-----------------------------------------
         UnderlyingType rep_;
         using Signed_type = typename std::make_signed<UnderlyingType>::type;
-
-        template <typename T>
-        concept SignedFloat = (get_signedness_v<T> == lo_float::Signedness::Signed);
-
-        template <typename T>
-        concept UnsignedFloat = (get_signedness_v<T> == lo_float::Signedness::Unsigned);
 
         // Helper for compare:
         static __attribute__((always_inline)) inline  std::pair<UnderlyingType, UnderlyingType>
@@ -319,23 +333,6 @@ namespace lo_float_internal {
             return kEquivalent;
         }
 
-        template<typename T>
-        __attribute__((always_inline)) inline  friend constexpr Ordering Compare(
-            const Derived& lhs, const T& rhs)
-            requires UnsignedFloat<Derived> {
-            if (std::isnan(lhs) || std::isnan(rhs)) {
-                return kUnordered;
-            }
-            auto lhs_rep = lhs.rep();
-            auto rhs_rep = rhs.rep();
-            if (lhs.rep == rhs.rep()) {
-                return kEquivalent;
-            } else if (lhs_rep < rhs_rep) {
-                return kLess;
-            } else {
-                return kGreater;
-            }
-        }
     }; //lo_float_base
 
 
@@ -492,7 +489,7 @@ namespace lo_float_internal {
     };
 
     // FloatingPointParams for float8e4m3_fn -> f is finite, n is NaN
-    template<Rounding_Mode round_mode>
+    template<Rounding_Mode round_mode , int stoch_len = 0>
     constexpr FloatingPointParams param_float8_e4m3fn(
         8, //totoal bitwidth
         3, // mantissa bits
@@ -502,13 +499,14 @@ namespace lo_float_internal {
         NaN_Behaviors::QuietNaN,    //NaN behavior
         Signedness::Signed,         //It is signed
         OCP_F8E4M3_InfChecker(),    //Inf Functor
-        OCP_F8E4M3_NaNChecker()     //NaN Functor
+        OCP_F8E4M3_NaNChecker(),     //NaN Functor
+        stoch_len                  // stochastic rounding length
     );
         
 
       
     // FloatingPointParams for float8e4m3b11_fnuz -> f is finite, n is NaN, u unsigned, z zero
-    template<Rounding_Mode round_mode>
+    template<Rounding_Mode round_mode, int stoch_len = 0>
     constexpr FloatingPointParams param_float8_e4m3b11fnuz(
         8, //totoal bitwidth
         3, // mantissa bits
@@ -519,10 +517,11 @@ namespace lo_float_internal {
         Signedness::Unsigned,       //It is unsigned
         OCP_F8E4M3_InfChecker(),    //Inf Functor
         OCP_F8E4M3_NaNChecker()     //NaN Functor
+        , stoch_len
     );
 
         // FloatingPointParams for float8e4m3b11_fnuz -> f is finite, n is NaN, u unsigned, z zero
-    template<Rounding_Mode round_mode>
+    template<Rounding_Mode round_mode, int stoch_len = 0>
     constexpr FloatingPointParams param_float8_e4m3fnuz(
         8, //totoal bitwidth
         3, // mantissa bits
@@ -532,7 +531,8 @@ namespace lo_float_internal {
         NaN_Behaviors::QuietNaN,    //NaN behavior
         Signedness::Unsigned,       //It is unsigned
         OCP_F8E4M3_InfChecker(),    //Inf Functor
-        OCP_F8E4M3_NaNChecker()     //NaN Functor
+        OCP_F8E4M3_NaNChecker(),     //NaN Functor
+        stoch_len
     );
 
     //NaNChecker for float8e5m2
@@ -552,7 +552,7 @@ namespace lo_float_internal {
 
 
     // FloatingPoint params for float8e5m2
-    template<Rounding_Mode round_mode>
+    template<Rounding_Mode round_mode, int stoch_len = 0>
     constexpr FloatingPointParams param_float8_e5m2(
         8, //totoal bitwidth
         2, // mantissa bits
@@ -562,12 +562,13 @@ namespace lo_float_internal {
         NaN_Behaviors::QuietNaN,    //NaN behavior
         Signedness::Signed,         //It is signed
         OCP_F8E4M3_InfChecker(),    //Inf Functor
-        OCP_F8E4M3_NaNChecker()     //NaN Functor
+        OCP_F8E4M3_NaNChecker(),     //NaN Functor
+        stoch_len
     );
 
 
     // FloatingPointParams for float8e5m2fnuz -> f is finite, n is NaN, u unsigned, z zero
-    template<Rounding_Mode round_mode>
+    template<Rounding_Mode round_mode, int stoch_len = 0>
     constexpr FloatingPointParams param_float8_e5m2fnuz(
         8, //totoal bitwidth
         2, // mantissa bits
@@ -578,11 +579,12 @@ namespace lo_float_internal {
         Signedness::Unsigned,       //It is unsigned
         OCP_F8E4M3_InfChecker(),    //Inf Functor
         OCP_F8E4M3_NaNChecker()     //NaN Functor
+        , stoch_len
     );
 
 
     // FloatingPointParams for float8ieee_p
-    template<int p, Rounding_Mode round_mode>
+    template<int p, Rounding_Mode round_mode, int stoch_len = 0>
     constexpr FloatingPointParams param_float8_ieee_p(
         8, //totoal bitwidth
         p - 1, // mantissa bits
@@ -593,12 +595,13 @@ namespace lo_float_internal {
         Signedness::Signed,         //It is signed
         OCP_F8E4M3_InfChecker(),    //Inf Functor
         OCP_F8E4M3_NaNChecker()     //NaN Functor
+        , stoch_len
     );
 
 
     
     // FloatingPointParams for float6e3m2
-    template<Rounding_Mode round_mode>
+    template<Rounding_Mode round_mode, int stoch_len = 0>
     constexpr FloatingPointParams param_float6_e3m2(
         6, //totoal bitwidth
         2, // mantissa bits
@@ -609,10 +612,11 @@ namespace lo_float_internal {
         Signedness::Signed,         //It is signed
         OCP_F8E4M3_InfChecker(),    //Inf Functor
         OCP_F8E4M3_NaNChecker()     //NaN Functor
+        , stoch_len
     );
 
     // FloatingPointParams for float6e2m3
-    template<Rounding_Mode round_mode>
+    template<Rounding_Mode round_mode, int stoch_len = 0>
     constexpr FloatingPointParams param_float6_e2m3(
         6, //totoal bitwidth
         3, // mantissa bits
@@ -623,10 +627,11 @@ namespace lo_float_internal {
         Signedness::Signed,         //It is signed
         OCP_F8E4M3_InfChecker(),    //Inf Functor
         OCP_F8E4M3_NaNChecker()     //NaN Functor
+        , stoch_len
     );
 
     // FloatingPointParams for float6_p
-    template<int p, Rounding_Mode round_mode>
+    template<int p, Rounding_Mode round_mode, int stoch_len = 0>
     constexpr FloatingPointParams param_float6_p(
         6, //totoal bitwidth
         p - 1, // mantissa bits
@@ -637,10 +642,11 @@ namespace lo_float_internal {
         Signedness::Signed,         //It is signed
         OCP_F8E4M3_InfChecker(),    //Inf Functor
         OCP_F8E4M3_NaNChecker()     //NaN Functor
+        , stoch_len
     );
 
     // FloatingPointParams for float4_e2m1
-    template<Rounding_Mode round_mode>
+    template<Rounding_Mode round_mode, int stoch_len = 0>
     constexpr FloatingPointParams param_float4_e2m1(
         4, //totoal bitwidth
         1, // mantissa bits
@@ -651,11 +657,12 @@ namespace lo_float_internal {
         Signedness::Signed,         //It is signed
         OCP_F8E4M3_InfChecker(),    //Inf Functor
         OCP_F8E4M3_NaNChecker()     //NaN Functor
+        , stoch_len
     );
 
 
     // FloatingPointParams for float4_p
-    template<int p, Rounding_Mode round_mode>
+    template<int p, Rounding_Mode round_mode, int stoch_len = 0>
     constexpr FloatingPointParams param_float4_p(
         4, //totoal bitwidth
         p - 1, // mantissa bits
@@ -666,6 +673,7 @@ namespace lo_float_internal {
         Signedness::Signed,         //It is signed
         OCP_F8E4M3_InfChecker(),    //Inf Functor
         OCP_F8E4M3_NaNChecker()     //NaN Functor
+        , stoch_len
     );
    
 
@@ -675,38 +683,38 @@ namespace lo_float_internal {
 
     //now define the types using the previously defined FloatingPointParams
 
-    template<Rounding_Mode round_mode = Rounding_Mode::RoundToNearestEven>
-    using float8_e4m3_fn = lo_float_internal::Templated_Float<lo_float_internal::param_float8_e4m3fn<round_mode>>;
+    template<Rounding_Mode round_mode = Rounding_Mode::RoundToNearestEven, int stoch_len = 0>
+    using float8_e4m3_fn = lo_float_internal::Templated_Float<lo_float_internal::param_float8_e4m3fn<round_mode, stoch_len>>;
 
-    template<Rounding_Mode round_mode = Rounding_Mode::RoundToNearestEven>
-    using float8_e4m3b11_fnuz = lo_float_internal::Templated_Float<lo_float_internal::param_float8_e4m3b11fnuz<round_mode>>;
+    template<Rounding_Mode round_mode = Rounding_Mode::RoundToNearestEven, int stoch_len = 0>
+    using float8_e4m3b11_fnuz = lo_float_internal::Templated_Float<lo_float_internal::param_float8_e4m3b11fnuz<round_mode, stoch_len>>;
 
-    template<Rounding_Mode round_mode = Rounding_Mode::RoundToNearestEven>
-    using float8_e4m3_fnuz = lo_float_internal::Templated_Float<lo_float_internal::param_float8_e4m3fnuz<round_mode>>;
+    template<Rounding_Mode round_mode = Rounding_Mode::RoundToNearestEven, int stoch_len = 0>
+    using float8_e4m3_fnuz = lo_float_internal::Templated_Float<lo_float_internal::param_float8_e4m3fnuz<round_mode, stoch_len>>;
 
-    template<Rounding_Mode round_mode = Rounding_Mode::RoundToNearestEven>
-    using float8_e5m2 = lo_float_internal::Templated_Float<lo_float_internal::param_float8_e5m2<round_mode>>;
+    template<Rounding_Mode round_mode = Rounding_Mode::RoundToNearestEven, int stoch_len = 0>
+    using float8_e5m2 = lo_float_internal::Templated_Float<lo_float_internal::param_float8_e5m2<round_mode, stoch_len>>;
 
-    template<Rounding_Mode round_mode = Rounding_Mode::RoundToNearestEven>
-    using float8_e5m2fnuz = lo_float_internal::Templated_Float<lo_float_internal::param_float8_e5m2fnuz<round_mode>>;
+    template<Rounding_Mode round_mode = Rounding_Mode::RoundToNearestEven, int stoch_len = 0>
+    using float8_e5m2fnuz = lo_float_internal::Templated_Float<lo_float_internal::param_float8_e5m2fnuz<round_mode, stoch_len>>;
 
-    template<int p, Rounding_Mode round_mode = Rounding_Mode::RoundToNearestEven>
-    using float8_ieee_p = lo_float_internal::Templated_Float<lo_float_internal::param_float8_ieee_p<p, round_mode>>;
+    template<int p, Rounding_Mode round_mode = Rounding_Mode::RoundToNearestEven, int stoch_len = 0>
+    using float8_ieee_p = lo_float_internal::Templated_Float<lo_float_internal::param_float8_ieee_p<p, round_mode, stoch_len>>;
 
-    template<Rounding_Mode round_mode = Rounding_Mode::RoundToNearestEven>
-    using float6_e3m2 = lo_float_internal::Templated_Float<lo_float_internal::param_float6_e3m2<round_mode>>;
+    template<Rounding_Mode round_mode = Rounding_Mode::RoundToNearestEven, int stoch_len = 0>
+    using float6_e3m2 = lo_float_internal::Templated_Float<lo_float_internal::param_float6_e3m2<round_mode, stoch_len>>;
 
-    template<Rounding_Mode round_mode = Rounding_Mode::RoundToNearestEven>
-    using float6_e2m3 = lo_float_internal::Templated_Float<lo_float_internal::param_float6_e2m3<round_mode>>;
+    template<Rounding_Mode round_mode = Rounding_Mode::RoundToNearestEven, int stoch_len = 0>
+    using float6_e2m3 = lo_float_internal::Templated_Float<lo_float_internal::param_float6_e2m3<round_mode, stoch_len>>;
 
-    template<int p, Rounding_Mode round_mode = Rounding_Mode::RoundToNearestEven>
-    using float6_p = lo_float_internal::Templated_Float<lo_float_internal::param_float6_p<p, round_mode>>;
+    template<int p, Rounding_Mode round_mode = Rounding_Mode::RoundToNearestEven, int stoch_len = 0>
+    using float6_p = lo_float_internal::Templated_Float<lo_float_internal::param_float6_p<p, round_mode, stoch_len>>;
 
-    template<Rounding_Mode round_mode = Rounding_Mode::RoundToNearestEven>
-    using float4_e2m1 = lo_float_internal::Templated_Float<lo_float_internal::param_float4_e2m1<round_mode>>;
+    template<Rounding_Mode round_mode = Rounding_Mode::RoundToNearestEven, int stoch_len = 0>
+    using float4_e2m1 = lo_float_internal::Templated_Float<lo_float_internal::param_float4_e2m1<round_mode, stoch_len>>;
 
-    template<int p, Rounding_Mode round_mode = Rounding_Mode::RoundToNearestEven>
-    using float4_p = lo_float_internal::Templated_Float<lo_float_internal::param_float4_p<p, round_mode>>;
+    template<int p, Rounding_Mode round_mode = Rounding_Mode::RoundToNearestEven, int stoch_len = 0>
+    using float4_p = lo_float_internal::Templated_Float<lo_float_internal::param_float4_p<p, round_mode, stoch_len>>;
 
 
     template<typename T>
@@ -883,7 +891,10 @@ namespace lo_float {
         //dont need to change this for signed vs unsigned
 template<FloatingPointParams Fp>
 constexpr inline Templated_Float<Fp> abs(const Templated_Float<Fp>& a) {
-    return Templated_Float<Fp>::FromRep(a.rep() & ((1 << (Fp.bitwidth - 1)) - 1));
+    if constexpr (get_signedness_v<Templated_Float<Fp>> == Signedness::Signed) {
+        return Templated_Float<Fp>::FromRep(a.rep() & ((1 << (Fp.bitwidth - 1)) - 1));
+    }
+    return a;
 }
 
 template<FloatingPointParams Fp>
@@ -1093,9 +1104,9 @@ struct TraitsBase {
   static constexpr int kBits = sizeof(Float) * CHAR_BIT;
   static constexpr int kMantissaBits = std::numeric_limits<Float>::digits - 1;
   static constexpr int kExponentBits = get_signedness_v<Float> == Signedness::Signed
-                                ? Fp.bitwidth - Fp.mantissa_bits - 1
-                                : Fp.bitwidth - Fp.mantissa_bits;
-  static constexpr BitsType kExponentMask = get_signedness_v<Templated_Float<Fp>> == Signedness::Signed
+                                ? get_bitwidth_v<Float> -  get_mantissa_bits_v<Float> - 1
+                                : get_bitwidth_v<Float> -  get_mantissa_bits_v<Float>;
+  static constexpr BitsType kExponentMask = get_signedness_v<Float> == Signedness::Signed
                                 ? (BitsType{1} << (kExponentBits - 1)) - 1
                                 : (BitsType{1} << kExponentBits) - 1;
   static constexpr BitsType kMantissaMask = (BitsType{1} << kMantissaBits) - 1;
@@ -1260,17 +1271,32 @@ struct ConvertImpl<From, To,
   static constexpr int kDigitShift = kToMantissaBits - kFromMantissaBits;
 
 
-//need to change the bool to an enum to support other rounding modes
+//set exception flags for overflow and underflow  here
   static  inline To run(const From& from, Rounding_Mode round_mode = Rounding_Mode::RoundToNearestEven) {
     // Shift bits to destination type, without sign bit.
     const bool from_sign_bit = get_signedness_v<From> == Signedness::Unsigned ? false :
         std::bit_cast<FromBits>(from) >> (kFromBits - 1);
     
     if(get_signedness_v<To> == Signedness::Unsigned && from_sign_bit) {
+        //set underflow flag
+        #ifdef ENABLE_EXCEPT
+        f_env.set_exeption_flags(LF_exception_flags::Underflow);
+        #endif
         if( get_unsigned_behavior_v<To> == Unsigned_behavior::NegtoZero) {
             return To{};
         } else {
-            return std::numeric_limits<To>::quiet_NaN();
+            if( get_NaN_Behavior_v<To> == NaN_Behaviors::SignalingNaN) {
+                return std::numeric_limits<To>::signaling_NaN();
+            } else if( get_NaN_Behavior_v<To> == NaN_Behaviors::QuietNaN) {
+                return std::numeric_limits<To>::quiet_NaN();
+            } else {
+                //trapping NaN - call trap
+                #ifdef ENABLE_EXCEPT
+                f_env.set_exeption_flags(LF_exception_flags::Invalid);
+                //call trap
+                f_env.raise();
+                #endif
+                return std::numeric_limits<To>::signaling_NaN();
             }
         }
     
@@ -1343,6 +1369,7 @@ struct ConvertImpl<From, To,
           
           bits >>= -kDigitShift;
         }
+
         To to = std::bit_cast<To>(static_cast<ToBits>(bits));
         return from_sign_bit ? -to : to;
       }
@@ -1453,6 +1480,10 @@ struct ConvertImpl<From, To,
         
       if (rounded_from_bits > aligned_highest) {
         // Overflowed values map to highest or infinity depending on kSaturate.
+
+        #ifdef ENABLE_EXCEPT
+            f_env.set_exeption_flags(LF_exception_flags::Overflow);                    
+        #endif
         if(std::numeric_limits<To>::has_infinity) {
           to = from_sign_bit ? -std::numeric_limits<To>::infinity()
                              : std::numeric_limits<To>::infinity();

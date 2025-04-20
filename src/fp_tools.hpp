@@ -117,7 +117,7 @@ concept InfChecker = requires(T t, uint64_t bits) {
  concept negativeException = requires(T t, uint64_t bits) {
     { t.sendstoNaN() } -> std::convertible_to<bool>;
     { t.sendtoZero() } -> std::convertible_to<bool>;
- }
+ };
 
 /**
  * @concept NaNChecker
@@ -176,9 +176,6 @@ struct FloatingPointParams
     /// @brief Indicates whether this format is signed or unsigned (see @ref Signedness).
     Signedness is_signed;
 
-    ///  @brief enum to deal with how to deak with negatives for unsigned
-    Unsigned_behavior unsigned_behavior;
-
     /// @brief A functor for checking and generating infinite values (must satisfy @ref InfChecker).
     IsInfFunctor IsInf;
 
@@ -187,6 +184,9 @@ struct FloatingPointParams
 
     /// @brief Number of bits used for stochastic rounding (0 means no stochastic rounding).
     int StochasticRoundingBits;
+
+    ///  @brief enum to deal with how to deak with negatives for unsigned
+    Unsigned_behavior unsigned_behavior;
 
     /**
      * @brief Constructs a FloatingPointParams with the specified parameters.
@@ -209,10 +209,10 @@ struct FloatingPointParams
         Inf_Behaviors ovb,
         NaN_Behaviors nab,
         Signedness is_signed,
-        Unsigned_behavior ub,
         IsInfFunctor IsInf,
         IsNaNFunctor IsNaN,
-        int stoch_length = 0
+        int stoch_length = 0,
+        Unsigned_behavior ub = Unsigned_behavior::NegtoZero
     )
       : bitwidth(bw)
       , mantissa_bits(mb)
@@ -221,10 +221,10 @@ struct FloatingPointParams
       , OV_behavior(ovb)
       , NA_behavior(nab)
       , is_signed(is_signed)
-      , unsigned_behavior(ub)
       , IsInf(IsInf)
       , IsNaN(IsNaN)
       , StochasticRoundingBits(stoch_length)
+      , unsigned_behavior(ub)
     {}
 };
 
@@ -291,16 +291,114 @@ struct SingleNaNChecker {
 /**
  * @brief Predefined parameters for a single-precision (32-bit) IEEE-like float.
  */
+template<Rounding_Mode rm>
 inline constexpr FloatingPointParams<SingleInfChecker, SingleNaNChecker> singlePrecisionParams(
     /* bitwidth      */ 32,
     /* mantissa_bits */ 23,
     /* bias          */ 127,
-    /* rounding_mode */ RoundToNearestEven,
-    /* OV_behavior   */ NonTrappingInf,
+    /* rounding_mode */ rm,
+    /* OV_behavior   */ Extended,
     /* NA_behavior   */ QuietNaN,
     /* is_signed     */ Signed,
     /* IsInf         */ SingleInfChecker{},
     /* IsNaN         */ SingleNaNChecker{}
 );
 
-}
+
+//defintions for half precision and bfloat-
+struct HalfInfChecker {
+    bool operator()(uint32_t bits) const {
+        return (((bits >> 15) & 0xFF) == 0xFF) && ((bits & 0x7FFF) == 0);
+    }
+    uint32_t infBitPattern() const { return 0x7C00; }
+    uint32_t minNegInf() const { return 0xFC00; } // -∞ => 0xFC00
+    uint32_t minPosInf() const { return 0x7C00; } // +∞ => 0x7C00
+
+};
+
+struct HalfNaNChecker {
+    bool operator()(uint32_t bits) const {
+        return (((bits >> 15) & 0xFF) == 0xFF) && ((bits & 0x7FFF) != 0);
+    }
+    uint32_t qNanBitPattern() const { return 0x7E00; } // typical QNaN
+    uint32_t sNanBitPattern() const { return 0x7F00; } // some SNaN pattern
+};
+
+template<Rounding_Mode rm>
+inline constexpr FloatingPointParams<HalfInfChecker, HalfNaNChecker> halfPrecisionParams(
+    /* bitwidth      */ 16,
+    /* mantissa_bits */ 10,
+    /* bias          */ 15,
+    /* rounding_mode */ rm,
+    /* OV_behavior   */ Extended,
+    /* NA_behavior   */ QuietNaN,
+    /* is_signed     */ Signed,
+    /* IsInf         */ HalfInfChecker{},
+    /* IsNaN         */ HalfNaNChecker{}
+);
+
+
+struct BFloatInfChecker {
+    bool operator()(uint32_t bits) const {
+        return (((bits >> 23) & 0xFF) == 0xFF) && ((bits & 0x7FFFFF) == 0);
+    }
+    uint32_t infBitPattern() const { return 0x7F800000; } // +∞ => 0x7F800000
+    uint32_t minNegInf() const { return 0xFF800000; } // -∞ => 0xFF800000
+    uint32_t minPosInf() const { return 0x7F800000; } // +∞ => 0x7F800000
+};
+
+
+struct BFloatNaNChecker {
+    bool operator()(uint32_t bits) const {
+        return (((bits >> 23) & 0xFF) == 0xFF) && ((bits & 0x7FFFFF) != 0);
+    }
+    uint32_t qNanBitPattern() const { return 0x7FC00000; } // typical QNaN
+    uint32_t sNanBitPattern() const { return 0x7FA00000; } // some SNaN pattern
+};
+
+template<Rounding_Mode rm>
+inline constexpr FloatingPointParams<BFloatInfChecker, BFloatNaNChecker> bfloatPrecisionParams(
+    /* bitwidth      */ 32,
+    /* mantissa_bits */ 7,
+    /* bias          */ 127,
+    /* rounding_mode */ rm,
+    /* OV_behavior   */ Extended,
+    /* NA_behavior   */ QuietNaN,
+    /* is_signed     */ Signed,
+    /* IsInf         */ BFloatInfChecker{},
+    /* IsNaN         */ BFloatNaNChecker{}
+);
+
+
+//definitions for tf32
+struct TF32InfChecker {
+    bool operator()(uint32_t bits) const {
+        return (((bits >> 23) & 0xFF) == 0xFF) && ((bits & 0x7FFFFF) == 0);
+    }
+    uint32_t infBitPattern() const { return 0x7F800000; } // +∞ => 0x7F800000
+    uint32_t minNegInf() const { return 0xFF800000; } // -∞ => 0xFF800000
+    uint32_t minPosInf() const { return 0x7F800000; } // +∞ => 0x7F800000
+};
+
+struct TF32NaNChecker {
+    bool operator()(uint32_t bits) const {
+        return (((bits >> 23) & 0xFF) == 0xFF) && ((bits & 0x7FFFFF) != 0);
+    }
+    uint32_t qNanBitPattern() const { return 0x7FC00000; } // typical QNaN
+    uint32_t sNanBitPattern() const { return 0x7FA00000; } // some SNaN pattern
+};
+
+template<Rounding_Mode rm>
+inline constexpr FloatingPointParams<TF32InfChecker, TF32NaNChecker> tf32PrecisionParams(
+    /* bitwidth      */ 19,
+    /* mantissa_bits */ 10,
+    /* bias          */ 127,
+    /* rounding_mode */ rm,
+    /* OV_behavior   */ Extended,
+    /* NA_behavior   */ QuietNaN,
+    /* is_signed     */ Signed,
+    /* IsInf         */ TF32InfChecker{},
+    /* IsNaN         */ TF32NaNChecker{}
+);
+
+} // namespace lo_float

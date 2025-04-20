@@ -32,3 +32,6 @@ EXCEPTIONS:
 
 UNSIGNED:
 	$(CXX) $(CXXFLAGS)  $(INCLUDE_PATH) test_unsigned.cpp -o test_unsigned
+
+ULTRA_LOW:
+	$(CXX) $(CXXFLAGS)  $(INCLUDE_PATH) ultra_low_tests.cpp -o test_ultra_low
