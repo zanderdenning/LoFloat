@@ -844,12 +844,24 @@ struct numeric_limits_flexible {
               }
               static constexpr Templated_Float<Fp> lowest() {
                 if (Fp.is_signed == lo_float::Signedness::Signed) {
+                    if(Fp.OV_behavior == lo_float::Inf_Behaviors::Saturating) {
+                        return Templated_Float<Fp>::FromRep(((1 << (Fp.bitwidth)) - 1) >> 1);
+                    }
                     return Templated_Float<Fp>::FromRep(Fp.IsInf.minNegInf() - 1);
                 } else {
                   return Templated_Float<Fp>::FromRep(0);
                 }
               }
               static constexpr Templated_Float<Fp> max() {
+                //if Extended return inf - 1, else return fromrep(1111...1)
+                if(Fp.OV_behavior == lo_float::Inf_Behaviors::Saturating) {
+                    if(Fp.is_signed == lo_float::Signedness::Signed) {
+                        return Templated_Float<Fp>::FromRep(((1 << (Fp.bitwidth)) - 1) >> 1);
+                    } else {
+                        return Templated_Float<Fp>::FromRep((1 << (Fp.bitwidth)) - 1);
+                    }
+                    
+                }
                 return Templated_Float<Fp>::FromRep(Fp.IsInf.minPosInf() - 1);
               }
               static constexpr Templated_Float<Fp> epsilon() {
@@ -863,6 +875,7 @@ struct numeric_limits_flexible {
                 );
               }
               static constexpr Templated_Float<Fp> infinity() {
+                if(Fp.OV_behavior == lo_float::Inf_Behaviors::Saturating) return max();
                 return Templated_Float<Fp>::FromRep(Fp.IsInf.minPosInf());
               }
               static constexpr Templated_Float<Fp> quiet_NaN() {
@@ -911,7 +924,7 @@ constexpr inline bool isnan(const Templated_Float<Fp>& a) {
 
 template<FloatingPointParams Fp>
 constexpr inline bool isinf(const Templated_Float<Fp>& a) {
-    return Fp.IsInf(a.rep());
+    return Fp.IsInf(a.rep()) && Fp.OV_behavior != Inf_Behaviors::Saturating;
 }
 
 template <typename LoFloat>
@@ -1166,7 +1179,8 @@ constexpr inline Bits RoundBitsToNearestEven(Bits bits, int roundoff) {
   // We do this by adding L to a bit pattern consisting of all T = 1.
   Bits bias = roundoff == 0
                   ? 0
-                  : ((bits >> roundoff) & 1) + (Bits{1} << (roundoff - 1)) - 1;
+                  : ((bits >> roundoff) & 1)    
+                   + (Bits{1} << (roundoff - 1)) - 1;   
   return bits + bias;
 }
 
@@ -1176,7 +1190,7 @@ constexpr inline Bits RoundBitsToNearestEven(Bits bits, int roundoff) {
 template <typename Bits>
 inline Bits Stochastic_Round(Bits bits, int roundoff, int len = 0) {
   //given pattern FFF...FLRTT...T,rounds stochastically by generating random bits
-  // corresponding to  RTT...T and adding the genned number.
+  // corresponding to  TT...T and adding the genned number.
   //Then we truncate the mantissa
   //auto len = 2;
   std::uniform_int_distribution<unsigned int> distribution(0, (1<< len) - 1);
@@ -1217,8 +1231,8 @@ constexpr inline Bits RoundBitsToNearestOdd(Bits bits, int roundoff) {
     //   FFF...FLRTT...T,
     // where bits RTT...T need to be rounded-off. We add a bias term to the
     // bit pattern such that a carry is introduced to round up only if
-    // - L is 0, R is 1, OR
-    // - L is 1, R is 1, any T is one.
+    // - L is 0, R is 1, and any T is one, OR
+    // - L is 0, R is 1
     // This ensures the final result is odd.
     
     Bits bias = roundoff == 0
@@ -1228,21 +1242,31 @@ constexpr inline Bits RoundBitsToNearestOdd(Bits bits, int roundoff) {
 }
 
 template<typename Bits>
-inline Bits RoundUp(Bits bits, int roundoff) {
-  //round bit pattern up by adding 1 to the bit pattern
+inline Bits RoundUp(Bits bits, int roundoff, bool positive = true) {
+  //round bit pattern up by adding 1 to the bit pattern if positive, truncate if negative
   //in bits FFF...FLRTT...T, set RTT...T to be 0 and add 1 to FFF...F
   auto mask = ~((Bits{1} << roundoff) - 1);
   Bits truncated = bits & mask;
-  return truncated + (bits > 0 ? Bits{1} << roundoff : 0);
+  return truncated + (positive ? (bits > 0 ? Bits{1} << roundoff : 0) : 0);
 
 }
 template <typename Bits>
-inline Bits RoundDown(Bits bits, int roundoff) {
+inline Bits RoundDown(Bits bits, int roundoff, bool positive = true) {
   //just truncate the bits
-  //in bits FFF...FLRTT...T, set RTT...T to be 0
+  //in bits FFF...FLRTT...T, set RTT...T to be 0 if positive, add 1 if negative
   auto mask = ~((Bits{1} << roundoff) - 1);
-  return bits & mask;
+  Bits truncated = bits & mask;
+  return truncated + (!positive ? (bits > 0 ? Bits{1} << roundoff : 0) : 0);
  
+}
+
+template <typename Bits>
+inline Bits RoundTiesToAway(Bits bits, int roundoff) {
+    // given LLLRTT...T, round to nearest and if tie, round away from zero by adding 1
+    // so if R = 1, add 1 to the bit pattern, else trunctate
+    auto mask = ~((Bits{1} << roundoff) - 1);
+    Bits truncated = bits & mask;
+    return truncated + (((bits >> (roundoff - 1)) & 1) << roundoff);
 }
 
 template <typename From, typename To>
@@ -1311,7 +1335,7 @@ struct ConvertImpl<From, To,
     
 
     // Special values, preserving sign.
-    if (std::isinf(from)) {
+    if (std::isinf(from) && get_overflow_behavior_v<To> != Inf_Behaviors::Saturating) {
       return from_sign_bit ? -std::numeric_limits<To>::infinity()
                            : std::numeric_limits<To>::infinity();
     }
@@ -1369,6 +1393,15 @@ struct ConvertImpl<From, To,
                 case Rounding_Mode::StochasticRounding :
                     bits = Stochastic_Round(bits, -kDigitShift, get_stochastic_length_v<To>);
                     break;
+                case Rounding_Mode::RoundUp :
+                    bits = RoundUp(bits, -kDigitShift, !from_sign_bit);
+                    break;
+                case Rounding_Mode::RoundDown :
+                    bits = RoundDown(bits, -kDigitShift, !from_sign_bit);
+                    break;
+                case Rounding_Mode::RoundTiesToAway :
+                    bits = RoundTiesToAway(bits, -kDigitShift);
+                    break;
                 default :
                     bits = RoundBitsToNearestEven(bits, -kDigitShift);
             } 
@@ -1407,9 +1440,6 @@ struct ConvertImpl<From, To,
             // an edge-case where rounding to a normalized value would normally
             // round down, but for a subnormal, we need to round up.
             switch (round_mode) {
-                case Rounding_Mode::RoundToNearestEven:
-                  rounded_from_bits = RoundBitsToNearestEven(rounded_from_bits, exponent_shift);
-                  break;
                 case Rounding_Mode::RoundToNearestOdd:
                   rounded_from_bits = RoundBitsToNearestOdd(rounded_from_bits, exponent_shift);
                   break;
@@ -1422,6 +1452,17 @@ struct ConvertImpl<From, To,
                 case Rounding_Mode::StochasticRounding:
                   rounded_from_bits = Stochastic_Round(rounded_from_bits, exponent_shift, get_stochastic_length_v<To>);
                   break;
+                case Rounding_Mode::RoundUp:
+                    rounded_from_bits = RoundUp(rounded_from_bits, exponent_shift, !from_sign_bit);
+                    break;
+                case Rounding_Mode::RoundDown:
+                    rounded_from_bits = RoundDown(rounded_from_bits, exponent_shift, !from_sign_bit);
+                    break;
+                case Rounding_Mode::RoundTiesToAway :
+                    rounded_from_bits = RoundTiesToAway(rounded_from_bits, exponent_shift);
+                    break;
+                default:
+                    rounded_from_bits = RoundBitsToNearestEven(rounded_from_bits, exponent_shift);
               }
               
           bits = (rounded_from_bits >> exponent_shift);
@@ -1436,9 +1477,6 @@ struct ConvertImpl<From, To,
     WideBits rounded_from_bits = from_bits;
     if constexpr (kDigitShift < 0) {
         switch (round_mode) {
-            case Rounding_Mode::RoundToNearestEven:
-              rounded_from_bits = RoundBitsToNearestEven(from_bits, -kDigitShift);
-              break;
             case Rounding_Mode::RoundToNearestOdd:
               rounded_from_bits = RoundBitsToNearestOdd(from_bits, -kDigitShift);
               break;
@@ -1451,6 +1489,17 @@ struct ConvertImpl<From, To,
             case Rounding_Mode::StochasticRounding:
               rounded_from_bits = Stochastic_Round(from_bits, -kDigitShift, get_stochastic_length_v<To>);
               break;
+            case Rounding_Mode::RoundUp:
+                rounded_from_bits = RoundUp(from_bits, -kDigitShift, !from_sign_bit);
+                break;
+            case Rounding_Mode::RoundDown:
+                rounded_from_bits = RoundDown(from_bits, -kDigitShift, !from_sign_bit);
+                break;
+            case Rounding_Mode::RoundTiesToAway :
+                rounded_from_bits = RoundTiesToAway(from_bits, -kDigitShift);
+                break;
+            default:
+                rounded_from_bits = RoundBitsToNearestEven(from_bits, -kDigitShift);
           }
           
       

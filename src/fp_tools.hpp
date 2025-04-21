@@ -33,10 +33,10 @@ enum Rounding_Mode : uint8_t {
     /// If equidistant, pick the one whose least significant bit is odd.
     RoundToNearestOdd = 4,
 
-    /// @brief Round down (toward -∞), sometimes called "floor" for positive values.
+    /// @brief Round down (toward -∞)
     RoundDown = 5,
 
-    /// @brief Round up (toward +∞), sometimes called "ceiling" for positive values.
+    /// @brief Round up (toward +∞)
     RoundUp = 6,
 
     /// @brief Round ties away from zero.  

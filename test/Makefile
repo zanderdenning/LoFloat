@@ -35,3 +35,6 @@ UNSIGNED:
 
 ULTRA_LOW:
 	$(CXX) $(CXXFLAGS)  $(INCLUDE_PATH) ultra_low_tests.cpp -o test_ultra_low
+
+ROUNDING_MODES:
+	$(CXX) $(CXXFLAGS)  $(INCLUDE_PATH) test_rounding_modes.cpp -o test_rounding_modes
