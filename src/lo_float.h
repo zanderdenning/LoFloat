@@ -482,7 +482,7 @@ namespace lo_float_internal {
     };
 
     struct OCP_F8E4M3_InfChecker {
-        bool operator()(uint32_t bits) {
+        bool operator()(uint32_t bits) const {
             return false;
         }
 
@@ -492,6 +492,34 @@ namespace lo_float_internal {
 
         uint32_t minPosInf() const {
             return 0x0;
+        }  // +∞ => 0x7F800000
+    };
+
+    struct IEEE_F8_NaNChecker {
+        bool operator()(uint32_t bits) const {
+            return bits == 0x00000080;
+        }
+
+        uint32_t qNanBitPattern() const {
+            return 0x00000080;
+        }  // typical QNaN
+
+        uint32_t sNanBitPattern() const {
+            return 0x00000080;
+        }  // some SNaN pattern
+    };
+
+    struct IEEE_F8_InfChecker {
+        bool operator()(uint32_t bits) const {
+            return bits == 0x0000007F || bits == 0x000000FF;
+        }
+
+        uint32_t minNegInf() const {
+            return 0xFF;
+        }  // -∞ => 0xFF800000
+
+        uint32_t minPosInf() const {
+            return 0x7F;
         }  // +∞ => 0x7F800000
     };
 
@@ -597,11 +625,11 @@ namespace lo_float_internal {
         p - 1, // mantissa bits
         (1 << (8 - p)) - 1,  //bias
         round_mode,  // rounding mode
-        Inf_Behaviors::Saturating,  //No infinity
+        Inf_Behaviors::Extended,  //No infinity
         NaN_Behaviors::QuietNaN,    //NaN behavior
         Signedness::Signed,         //It is signed
-        OCP_F8E4M3_InfChecker(),    //Inf Functor
-        OCP_F8E4M3_NaNChecker()     //NaN Functor
+        IEEE_F8_InfChecker(),    //Inf Functor
+        IEEE_F8_NaNChecker()    //NaN Functor
         , stoch_len
     );
 
@@ -927,26 +955,6 @@ constexpr inline bool isinf(const Templated_Float<Fp>& a) {
     return Fp.IsInf(a.rep()) && Fp.OV_behavior != Inf_Behaviors::Saturating;
 }
 
-template <typename LoFloat>
-constexpr inline bool(isinf)(const lo_float_base<LoFloat>& lf) {
-  return std::numeric_limits<LoFloat>::has_infinity
-             ? abs(lf.derived()).rep() ==
-                   std::numeric_limits<LoFloat>::infinity().rep()
-             : false;  // No inf representation.
-}
-
-
-template <typename LoFloat>
-constexpr inline bool(isfinite)(const lo_float_base<LoFloat>& a) {
-  return !isnan(a.derived()) && !isinf(a.derived());
-}
-
-template <typename LoFloat>
-std::ostream& operator<<(std::ostream& os, const lo_float_base<LoFloat>& lf) {
-  os << static_cast<float>(lf.derived());
-  return os;
-}
-
 
 
 }
@@ -1074,6 +1082,12 @@ struct IntegerBySize<a, std::enable_if_t<(a > 4)>> {
     using signed_type = int64_t;
 };
 
+template <int a>
+struct IntegerBySize<a, std::enable_if_t<(a > 8)>> {
+    using unsigned_type = unsigned long long;
+    using signed_type = long long;
+};
+
 // Alias to get the unsigned type directly
 template <int kNumBytes>
 using GetUnsignedInteger = typename IntegerBySize<kNumBytes>::unsigned_type;
@@ -1150,6 +1164,7 @@ struct Traits<Templated_Float<Fp>> : public TraitsBase<Templated_Float<Fp>> {
  
 template <>
 struct Traits<float> : public TraitsBase<float> {
+  using BitsType = uint32_t;
   static constexpr int kBits = sizeof(float) * CHAR_BIT;
   static constexpr int kExponentBits = 8;
   static constexpr int kMantissaBits = 23;
@@ -1158,6 +1173,7 @@ struct Traits<float> : public TraitsBase<float> {
 
 template <>
 struct Traits<double> : public TraitsBase<double> {
+  using BitsType = uint64_t;
   static constexpr int kBits = sizeof(double) * CHAR_BIT;
   static constexpr int kExponentBits = 11;
   static constexpr int kMantissaBits = 52;
@@ -1188,22 +1204,15 @@ constexpr inline Bits RoundBitsToNearestEven(Bits bits, int roundoff) {
 
 
 template <typename Bits>
-inline Bits Stochastic_Round(Bits bits, int roundoff, int len = 0) {
+inline Bits Stochastic_Round(Bits bits, const int roundoff, const int len = 0) {
   //given pattern FFF...FLRTT...T,rounds stochastically by generating random bits
-  // corresponding to  TT...T and adding the genned number.
+  // corresponding to  RTT...T and adding the genned number.
   //Then we truncate the mantissa
   //auto len = 2;
   std::uniform_int_distribution<unsigned int> distribution(0, (1<< len) - 1);
   unsigned int samp = distribution(mt); // Generate a random integer of length len, next get top "roundoff" bits
-  unsigned int to_add;
-  if (roundoff > len) {
-    to_add = samp << (roundoff - len);
-    } else {
-        to_add = samp >> (len - roundoff);
-    }
-
-  Bits to_ret = bits + static_cast<Bits>(to_add);
-  return to_ret;
+  Bits top_bits = (static_cast<Bits>(samp) << (roundoff - len));
+  return bits + (top_bits);
 }
 
 template <typename Bits>
@@ -1269,6 +1278,8 @@ inline Bits RoundTiesToAway(Bits bits, int roundoff) {
     return truncated + (((bits >> (roundoff - 1)) & 1) << roundoff);
 }
 
+
+
 template <typename From, typename To>
 struct ConvertImpl<From, To,
                    std::enable_if_t<!std::is_same_v<From, To>>> {
@@ -1296,20 +1307,26 @@ struct ConvertImpl<From, To,
       (std::max(kToExponentBits, kFromExponentBits));   // Max exponent.
   static constexpr int kWideBytes = (kWideBits + (CHAR_BIT - 1)) / CHAR_BIT;   //kWideBits = 0????
   using WideBits = GetUnsignedInteger<kWideBytes>;
-  //static_assert(std::is_same_v<WideBits, uint32_t>, "WideBits<8> must be uint64_t");
+  //static_assert(std::is_same_v<WideBits, unsigned long long>, "WideBits<8> must be uint64_t");
   //using WideBits = u_int32_t;
   static constexpr int kExponentOffset = kToExponentBias - kFromExponentBias;
   static constexpr int kDigitShift = kToMantissaBits - kFromMantissaBits;
 
 
+
 //set exception flags for overflow and underflow  here
+
   static  inline To run(const From& from, Rounding_Mode round_mode = Rounding_Mode::RoundToNearestEven) {
     // Shift bits to destination type, without sign bit.
-    const bool from_sign_bit = get_signedness_v<From> == Signedness::Unsigned ? false :
+
+    const bool from_sign_bit = (get_signedness_v<From> == Signedness::Unsigned ||
+         (sizeof(ToBits) == 1 && std::abs(from) == From{})) ? false :
         std::bit_cast<FromBits>(from) >> (kFromBits - 1);
+
     
     if(get_signedness_v<To> == Signedness::Unsigned && from_sign_bit) {
         //set underflow flag
+        
         #ifdef ENABLE_EXCEPT
         f_env.set_exception_flag(LF_exception_flags::Underflow);
         #endif
@@ -1332,10 +1349,12 @@ struct ConvertImpl<From, To,
     
     const FromBits from_bits =
         std::bit_cast<FromBits>(abs(from));
+        
     
-
     // Special values, preserving sign.
+    
     if (std::isinf(from) && get_overflow_behavior_v<To> != Inf_Behaviors::Saturating) {
+        
       return from_sign_bit ? -std::numeric_limits<To>::infinity()
                            : std::numeric_limits<To>::infinity();
     }
@@ -1345,6 +1364,8 @@ struct ConvertImpl<From, To,
     if (from_bits == 0) {
       return from_sign_bit ? -To{} : To{};
     }
+
+    
 
     const int biased_from_exponent = from_bits >> kFromMantissaBits;  //check if number is subnormal
 
@@ -1375,8 +1396,10 @@ struct ConvertImpl<From, To,
           bits |= static_cast<WideBits>(biased_exponent) << kFromMantissaBits;
         }
 
+        
         // Truncate/round mantissa if necessary.
         if constexpr (kDigitShift > 0) {
+           
           bits <<= kDigitShift;
         } else {
             
@@ -1405,21 +1428,25 @@ struct ConvertImpl<From, To,
                 default :
                     bits = RoundBitsToNearestEven(bits, -kDigitShift);
             } 
-            
+           
           
           bits >>= -kDigitShift;
         }
-
+        
         To to = std::bit_cast<To>(static_cast<ToBits>(bits));
         return from_sign_bit ? -to : to;
       }
     }
     // `To` supports fewer exponents near zero which means that some values in
     // `From` may become subnormal.
+    
+    
     if constexpr (std::numeric_limits<To>::min_exponent >
                   std::numeric_limits<From>::min_exponent) {
       const int unbiased_exponent = biased_from_exponent - kFromExponentBias;
+      
       const int biased_to_exponent = unbiased_exponent + kToExponentBias;
+      
       // Subnormals and zero.
       if (biased_to_exponent <= 0) {
         // Round and shift mantissa down.
@@ -1464,10 +1491,13 @@ struct ConvertImpl<From, To,
                 default:
                     rounded_from_bits = RoundBitsToNearestEven(rounded_from_bits, exponent_shift);
               }
+
+              
               
           bits = (rounded_from_bits >> exponent_shift);
         }
         // Insert sign and return.
+        
         To to = std::bit_cast<To>(bits);
         return from_sign_bit ? -to : to;
       }
@@ -1476,6 +1506,7 @@ struct ConvertImpl<From, To,
     // Round the mantissa if it is shrinking.
     WideBits rounded_from_bits = from_bits;
     if constexpr (kDigitShift < 0) {
+        
         switch (round_mode) {
             case Rounding_Mode::RoundToNearestOdd:
               rounded_from_bits = RoundBitsToNearestOdd(from_bits, -kDigitShift);
@@ -1501,10 +1532,12 @@ struct ConvertImpl<From, To,
             default:
                 rounded_from_bits = RoundBitsToNearestEven(from_bits, -kDigitShift);
           }
+
           
       
       // Zero-out tail bits.
       rounded_from_bits &= ~((WideBits{1} << (-kDigitShift)) - 1);
+      
     }
 
     // Re-bias the exponent.
@@ -1517,6 +1550,7 @@ struct ConvertImpl<From, To,
     const WideBits kToHighestRep =
         std::bit_cast<ToBits>(std::numeric_limits<To>::max());
     WideBits aligned_highest{kToHighestRep};
+    
     if constexpr (kDigitShift < 0) {
       aligned_highest <<= -kDigitShift;
       // Shift down, all dropped bits should already be zero.
@@ -1526,6 +1560,7 @@ struct ConvertImpl<From, To,
       rounded_from_bits <<= kDigitShift;
       bits = ToBits{static_cast<ToBits>(rounded_from_bits)};
     }
+    //
 
     To to = std::bit_cast<To>(bits);
     // `From` supports larger values than `To`, we may overflow.
@@ -1533,10 +1568,10 @@ struct ConvertImpl<From, To,
                                  std::numeric_limits<To>::digits) <
                   std::make_pair(std::numeric_limits<From>::max_exponent,
                                  std::numeric_limits<From>::digits)) {
-        
-      if (rounded_from_bits > aligned_highest) {
-        // Overflowed values map to highest or infinity depending on kSaturate.
 
+      if (rounded_from_bits > aligned_highest) {
+        //entering this regione
+        // Overflowed values map to highest or infinity depending on kSaturate.
         #ifdef ENABLE_EXCEPT
             f_env.set_exception_flag(LF_exception_flags::Overflow);                    
         #endif
@@ -1546,6 +1581,7 @@ struct ConvertImpl<From, To,
         } else {
           to = from_sign_bit ? -std::numeric_limits<To>::max()
                              : std::numeric_limits<To>::max();
+                             //: static_cast<To>(1.0);
         }
       }
     }

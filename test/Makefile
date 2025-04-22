@@ -1,12 +1,11 @@
 CXXFLAGS = -std=c++20
-CXX = clang++
+CXX = g++
 
 CDBG += -w
 CXXFLAGS += $(CDBG) -v
 CXXFLAGS += -g -O3
 
 
-INCLUDE_PATH = -I$(HOME)/Documents/tlapack
 INCLUDE_PATH += -I$(HOME)
 INCLUDE_PATH += -I$(HOME)/Documents/LoFloat/src
 
@@ -38,3 +37,5 @@ ULTRA_LOW:
 
 ROUNDING_MODES:
 	$(CXX) $(CXXFLAGS)  $(INCLUDE_PATH) test_rounding_modes.cpp -o test_rounding_modes
+
+ALL: LO_FLOAT LO_INT EXPECTATION PROBABILITY EXCEPTIONS UNSIGNED ULTRA_LOW ROUNDING_MODES
