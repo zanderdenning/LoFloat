@@ -15,6 +15,9 @@ INCLUDE_PATH += -I$(HOME)/Documents/LoFloat/test
 OSCILLATOR:
 	$(CXX) $(CXXFLAGS)  $(INCLUDE_PATH) Oscillator.cpp -o oscillator
 
+NEWTON:
+	$(CXX) $(CXXFLAGS)  $(INCLUDE_PATH) newtons_method.cpp -o newtons_method
+
 clean:
 	rm -f oscillator
 	rm -f *.o

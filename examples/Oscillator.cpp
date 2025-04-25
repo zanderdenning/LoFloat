@@ -9,57 +9,74 @@
 #include <fstream>
 #include <cmath>
 #include "lo_float.h"
+#include <chrono>   
 
 using namespace lo_float;
 
 // ---------- 8‑bit parameter packs ------------------------------------------
 
 
-using rne8 = float8_ieee_p<5, RoundToNearestEven>;
-using sr8  = float8_ieee_p<5, StochasticRounding, 3>;
+//define FloatingPointParams for 8-bit floats
+static constexpr FloatingPointParams param_fp8(
+    8, /*mant*/5, /*bias*/3,
+    Rounding_Mode::StochasticRoundingC,
+    Inf_Behaviors::Saturating, NaN_Behaviors::QuietNaN,
+    Signedness::Signed,
+    lo_float_internal::IEEE_F8_InfChecker(),
+    lo_float_internal::IEEE_F8_NaNChecker(),
+    6
+);
+
+using rne8 = float8_ieee_p<6, RoundToNearestEven>;
+using sr8  = Templated_Float<param_fp8>;
 
 // ---------- one Euler step --------------------------------------------------
 template<typename F>
-inline void euler_step(F& u, F& v, double h)
+inline void euler_step(F& u, F& v, float h)
 {
     const F du = v;
     const F dv = -u;
-    u = static_cast<F>((double)u + h * (double)du);
-    v = static_cast<F>((double)v + h * (double)dv);
+    u = static_cast<F>((float)u + h * (float)du);
+    v = static_cast<F>((float)v + h * (float)dv);
 }
 
 int main()
 {
-    constexpr double T = 20.0, h = 0.0001;
+
+    constexpr float T = 10.0, h = 0.001;
     int N = static_cast<int>(T / h);
     std::cout << "N = " << N << "\n";
 
-    N = 1;
+    //set seed with time
+    lo_float::set_seed(static_cast<unsigned int>(std::time(nullptr)));
 
-    std::vector<double> t, u_rne, v_rne, u_sr, v_sr, u_exact, v_exact;
+    // printr max vals of the formats
+    std::cout << "max rne8 = " << static_cast<float>(std::numeric_limits<rne8>::max()) << "\n";
+    std::cout << "max sr8  = " << static_cast<float>(std::numeric_limits<sr8>::max()) << "\n";
+    std::cout << "min rne8 = " << static_cast<float>(std::numeric_limits<rne8>::min()) << "\n";
+    std::cout << "min sr8  = " << static_cast<float>(std::numeric_limits<sr8>::min()) << "\n";
+    std::cout << "denorm rne8 = " << static_cast<float>(std::numeric_limits<rne8>::denorm_min()) << "\n";
+    std::cout << "denorm sr8  = " << static_cast<float>(std::numeric_limits<sr8>::denorm_min()) << "\n";
+
+
+    std::vector<float> t, u_rne, v_rne, u_sr, v_sr, u_exact, v_exact;
     t.reserve(N + 1);
 
     rne8 u_r = rne8(1.0), v_r = rne8(0.0);
     sr8  u_s = sr8(1.0), v_s = sr8(-0.0);
 
-    std::cout << "u_s = " << static_cast<double>(u_s) << "\n";
-    std::cout << "v_s = " << static_cast<double>(v_s) << "\n";
+    std::cout << "u_s = " << static_cast<float>(u_s) << "\n";
+    std::cout << "v_s = " << static_cast<float>(v_s) << "\n";
 
     for (int k = 0; k <= N; ++k) {
-        double tk = k * h;
+        float tk = k * h;
         t.push_back(tk);
-        u_rne.push_back(static_cast<double>(u_r));
-        v_rne.push_back(static_cast<double>(v_r));
-        u_sr .push_back(static_cast<double>(u_s));
-        v_sr .push_back(static_cast<double>(v_s));
+        u_rne.push_back(static_cast<float>(u_r));
+        v_rne.push_back(static_cast<float>(v_r));
+        u_sr .push_back(static_cast<float>(u_s));
+        v_sr .push_back(static_cast<float>(v_s));
         u_exact.push_back(std::cos(tk));
         v_exact.push_back(-std::sin(tk));
-
-        std::cout << "iter k = " << k << "\n";
-        std::cout << "u_r = " << static_cast<double>(u_r) << "\n";
-        std::cout << "v_r = " << static_cast<double>(v_r) << "\n";
-        std::cout << "u_s = " << static_cast<double>(u_s) << "\n";
-        std::cout << "v_s = " << static_cast<double>(v_s) << "\n";
 
         euler_step(u_r, v_r, h);
         euler_step(u_s, v_s, h);

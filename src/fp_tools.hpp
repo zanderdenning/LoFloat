@@ -26,8 +26,8 @@ enum Rounding_Mode : uint8_t {
     /// @brief Round away from zero (always go to the numerically larger magnitude).
     RoundAwayFromZero = 2,
 
-    /// @brief Use stochastic rounding to decide how to round the fractional part.
-    StochasticRounding = 3,
+    /// @brief Stochastic rounding with a random bitstring of specified length - biases towards rounding tpwards zero.
+    StochasticRoundingA = 3,
 
     /// @brief Round to the nearest representable value.  
     /// If equidistant, pick the one whose least significant bit is odd.
@@ -41,7 +41,19 @@ enum Rounding_Mode : uint8_t {
 
     /// @brief Round ties away from zero.  
     /// If exactly halfway between two representable values, pick the one with larger magnitude.
-    RoundTiesToAway = 7
+    RoundTiesToAway = 7,
+
+    /// @brief Stochastic rounding with a random bitstring of specified length - biases towards rounding away from zero.
+    StochasticRoundingB = 8,
+
+    /// @brief Stochastic rounding with a random bitstring of specified length - rounds away or towards zeero with a coin flip
+    StochasticRoundingC = 9,
+
+    /// @brief True stochastic rounding - rounds up using rejection sampling against
+    True_StochasticRounding = 10,
+
+    /// @brief Probabilistic rounding - rounds up or down with a probability of 0.5.
+    ProbabilisticRounding = 11,
 };
 
 /**
@@ -324,7 +336,7 @@ struct HalfNaNChecker {
     uint32_t sNanBitPattern() const { return 0x7F00; } // some SNaN pattern
 };
 
-template<Rounding_Mode rm>
+template<Rounding_Mode rm, int stoch_len = 0>
 inline constexpr FloatingPointParams<HalfInfChecker, HalfNaNChecker> halfPrecisionParams(
     /* bitwidth      */ 16,
     /* mantissa_bits */ 10,
@@ -334,7 +346,8 @@ inline constexpr FloatingPointParams<HalfInfChecker, HalfNaNChecker> halfPrecisi
     /* NA_behavior   */ QuietNaN,
     /* is_signed     */ Signed,
     /* IsInf         */ HalfInfChecker{},
-    /* IsNaN         */ HalfNaNChecker{}
+    /* IsNaN         */ HalfNaNChecker{},
+    /* stochastic_rounding_length */ stoch_len
 );
 
 
@@ -356,9 +369,9 @@ struct BFloatNaNChecker {
     uint32_t sNanBitPattern() const { return 0x7FA00000; } // some SNaN pattern
 };
 
-template<Rounding_Mode rm>
+template<Rounding_Mode rm, int stoch_len = 0>
 inline constexpr FloatingPointParams<BFloatInfChecker, BFloatNaNChecker> bfloatPrecisionParams(
-    /* bitwidth      */ 32,
+    /* bitwidth      */ 16,
     /* mantissa_bits */ 7,
     /* bias          */ 127,
     /* rounding_mode */ rm,
@@ -366,7 +379,8 @@ inline constexpr FloatingPointParams<BFloatInfChecker, BFloatNaNChecker> bfloatP
     /* NA_behavior   */ QuietNaN,
     /* is_signed     */ Signed,
     /* IsInf         */ BFloatInfChecker{},
-    /* IsNaN         */ BFloatNaNChecker{}
+    /* IsNaN         */ BFloatNaNChecker{},
+    /* stochastic_rounding_length */ stoch_len
 );
 
 

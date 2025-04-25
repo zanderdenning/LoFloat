@@ -12,10 +12,18 @@ enum MX_Layout : uint8_t {
     byBlock = 2
 };
 
+struct MX_tuple {
+    MX_Layout layout;
+    int m;
+    int n;
+
+    MX_tuple(MX_Layout layout, int m, int n = 1) : layout(layout), m(m), n(n) {}
+};
+
 enum Arch_extensions : uint8_t {
     NONE = 0,
     AVX256 = 1,
     AVX512 = 2,
     NEON = 3
-}
+};
 }

@@ -1,20 +1,5 @@
-/* Copyright 2023 The ml_dtypes Authors
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-==============================================================================*/
-
-#ifndef ML_DTYPES_INT4_H_
-#define ML_DTYPES_INT4_H_
+#ifndef LO_FLOAT_INTN_H_
+#define LO_FLOAT_INTN_H_
 
 #include <cstdint>
 #include <limits>
@@ -23,290 +8,182 @@ limitations under the License.
 #include <sstream>
 #include <string>
 #include <type_traits>
+#include "fp_tools.hpp" 
 
-namespace ml_dtypes {
+namespace lo_float {
 
-// Stores the 4-bit integer value in the low four bits of a byte.  The upper
-// four bits are left unspecified and ignored.
-template <typename UnderlyingTy>
-struct i4 {
- private:
-  UnderlyingTy v_;
+/* ------------------------------------------------------------------ *
+ *  Helper: pick the narrowest unsigned host type that fits LEN bits  *
+ * ------------------------------------------------------------------ */
+template<int LEN>
+struct get_unsigned_type {
+  static_assert(LEN >= 1 && LEN <= 64, "LEN must be 1-64");
+  using type = std::conditional_t<
+      (LEN <= 8),  uint8_t,
+      std::conditional_t<
+          (LEN <= 16), uint16_t,
+          std::conditional_t<
+              (LEN <= 32), uint32_t,
+              uint64_t>>>;
+};
+template<int LEN> using get_unsigned_type_t = typename get_unsigned_type<LEN>::type;
 
-  static_assert(
-      std::is_same_v<UnderlyingTy, uint8_t> ||
-          std::is_same_v<UnderlyingTy, int8_t>,
-      "The underyling type must be a signed or unsigned 8-bit integer.");
+template<int LEN, lo_float::Signedness Signedness>
+class i_n {
+  using Storage = get_unsigned_type_t<LEN>;
+  static constexpr Storage MASK = (LEN == 64) ? Storage(-1) : ((Storage(1) << LEN) - 1);
 
-  // Mask the upper four bits.
-  static inline constexpr UnderlyingTy Mask(UnderlyingTy v) { return v & 0x0F; }
+  Storage v_{0};
 
-  // Mask the upper four bits and sign-extend for signed types.
-  static inline constexpr UnderlyingTy MaskAndSignExtend(UnderlyingTy v) {
-    return std::is_signed_v<UnderlyingTy> ? Mask(v) | ((v & 0x08) ? 0xF0 : 0x00)
-                                          : Mask(v);
+  static constexpr Storage mask(Storage x) { return x & MASK; }
+
+  static constexpr Storage sign_extend(Storage x) {
+    if constexpr (Signedness != lo_float::Signedness::Signed) return mask(x);              // unsigned view
+    else {
+      const Storage sign_bit = Storage(1) << (LEN - 1);
+      return mask(x) ^ sign_bit ? (mask(x) | ~MASK) : mask(x);
+    }
   }
 
-  // Casts to the corresponding UnderlyingTy value.
-  inline constexpr UnderlyingTy IntValue() const {
-    return MaskAndSignExtend(v_);
+  constexpr Storage int_value() const { return sign_extend(v_); }
+
+public:
+  /* --------------------- ctors --------------------- */
+  constexpr i_n() = default;
+  constexpr i_n(const i_n&) noexcept = default;
+  constexpr i_n(i_n&&) noexcept = default;
+  constexpr i_n& operator=(const i_n&) = default;
+
+  template<typename T, std::enable_if_t<std::is_integral_v<T>, int> = 0>
+  explicit constexpr i_n(T x) : v_(mask(Storage(x))) {}
+
+  /* ---------------- arithmetic / bit-wise ---------------- */
+  #define LOF_BINARY_OP(op)                                           \
+    constexpr i_n operator op(const i_n& o) const {                   \
+      return i_n(int_value() op o.int_value());                       \
+    }
+  LOF_BINARY_OP(+)
+  LOF_BINARY_OP(-)
+  LOF_BINARY_OP(*)
+  LOF_BINARY_OP(/)
+  LOF_BINARY_OP(%)
+  LOF_BINARY_OP(&)
+  LOF_BINARY_OP(|)
+  LOF_BINARY_OP(^)
+  #undef LOF_BINARY_OP
+
+  constexpr i_n operator~() const { return i_n(~int_value()); }
+  constexpr i_n operator<<(int k) const { return i_n(mask(v_ << k)); }
+  constexpr i_n operator>>(int k) const {
+    if constexpr (Signedness = lo_float::Signedness::Signed) return i_n(int_value() >> k);   // arithmetic shift
+    else                  return i_n(v_ >> k);            // logical shift
   }
 
- public:
-  constexpr i4() noexcept : v_(0) {}
-  constexpr i4(const i4& other) noexcept = default;
-  constexpr i4(i4&& other) noexcept = default;
-  constexpr i4& operator=(const i4& other) = default;
-  constexpr i4& operator=(i4&&) = default;
+  /* --------------- comparisons --------------- */
+  #define LOF_CMP(op)                                                 \
+    constexpr bool operator op(const i_n& o) const {                  \
+      return int_value() op o.int_value();                            \
+    }
+  LOF_CMP(==) LOF_CMP(!=) LOF_CMP(<) LOF_CMP(>) LOF_CMP(<=) LOF_CMP(>=)
+  #undef LOF_CMP
 
-  explicit constexpr i4(UnderlyingTy val) : v_(Mask(val)) {}
-  template <typename T>
-  explicit constexpr i4(T t) : i4(static_cast<UnderlyingTy>(t)) {}
+  /* --------------- compound ops --------------- */
+  #define LOF_COMPOUND(op)                                            \
+    constexpr i_n& operator op##=(const i_n& o) {                     \
+      *this = *this op o;                                             \
+      return *this;                                                   \
+    }
+  LOF_COMPOUND(+) LOF_COMPOUND(-) LOF_COMPOUND(*) LOF_COMPOUND(/)
+  LOF_COMPOUND(%) LOF_COMPOUND(&) LOF_COMPOUND(|) LOF_COMPOUND(^)
+  LOF_COMPOUND(<<) LOF_COMPOUND(>>)
+  #undef LOF_COMPOUND
 
-  static constexpr i4 lowest() {
-    return std::is_signed<UnderlyingTy>::value ? i4(-8) : i4(0);
-  }
-  static constexpr i4 highest() {
-    return std::is_signed<UnderlyingTy>::value ? i4(7) : i4(15);
-  }
+  /* --------------- increment / decrement --------------- */
+  constexpr i_n& operator++()              { return *this += i_n(1); }
+  constexpr i_n  operator++(int)           { i_n t=*this; ++*this; return t; }
+  constexpr i_n& operator--()              { return *this -= i_n(1); }
+  constexpr i_n  operator--(int)           { i_n t=*this; --*this; return t; }
 
-  template <typename T>
-  explicit constexpr operator T() const {
-    return static_cast<T>(IntValue());
-  }
-  // NOLINTNEXTLINE(google-explicit-constructor)
+  /* --------------- cast helpers --------------- */
+  template<typename T, std::enable_if_t<std::is_integral_v<T>, int> = 0>
+  explicit constexpr operator T() const    { return static_cast<T>(int_value()); }
+
   constexpr operator std::optional<int64_t>() const {
-    return static_cast<int64_t>(IntValue());
+    return static_cast<int64_t>(int_value());
   }
 
-  constexpr i4 operator-() const { return i4(-v_); }
-  constexpr i4 operator+(const i4& other) const { return i4(v_ + other.v_); }
-  constexpr i4 operator-(const i4& other) const { return i4(v_ - other.v_); }
-  constexpr i4 operator*(const i4& other) const { return i4(v_ * other.v_); }
-  constexpr i4 operator/(const i4& other) const {
-    return i4(IntValue() / other.IntValue());
+  /* --------------- limits --------------- */
+  static constexpr i_n lowest() {
+    if constexpr (Signed) return i_n(Storage(1) << (LEN - 1)); // two's-complement min
+    else                  return i_n(0);
   }
-  constexpr i4 operator%(const i4& other) const {
-    return i4((IntValue() % other.IntValue()));
-  }
+  static constexpr i_n highest() { return i_n(MASK - (Signed ? (Storage(1) << (LEN - 1)) : 0)); }
 
-  constexpr i4 operator&(const i4& other) const { return i4(v_ & other.v_); }
-  constexpr i4 operator|(const i4& other) const { return i4(v_ | other.v_); }
-  constexpr i4 operator^(const i4& other) const { return i4(v_ ^ other.v_); }
-  constexpr i4 operator~() const { return i4(~v_); }
-  constexpr i4 operator>>(int amount) const { return i4(IntValue() >> amount); }
-  constexpr i4 operator<<(int amount) const { return i4(v_ << amount); }
-
-  constexpr bool operator==(const i4& other) const {
-    return Mask(v_) == Mask(other.v_);
-  }
-  constexpr bool operator!=(const i4& other) const {
-    return Mask(v_) != Mask(other.v_);
-  }
-  constexpr bool operator<(const i4& other) const {
-    return IntValue() < other.IntValue();
-  }
-  constexpr bool operator>(const i4& other) const {
-    return IntValue() > other.IntValue();
-  }
-  constexpr bool operator<=(const i4& other) const {
-    return IntValue() <= other.IntValue();
-  }
-  constexpr bool operator>=(const i4& other) const {
-    return IntValue() >= other.IntValue();
-  }
-
-  constexpr bool operator==(int64_t other) const { return IntValue() == other; }
-  constexpr bool operator!=(int64_t other) const { return IntValue() != other; }
-  constexpr bool operator<(int64_t other) const { return IntValue() < other; }
-  constexpr bool operator>(int64_t other) const { return IntValue() > other; }
-  constexpr bool operator<=(int64_t other) const { return IntValue() <= other; }
-  constexpr bool operator>=(int64_t other) const { return IntValue() >= other; }
-
-  friend constexpr bool operator==(int64_t a, const i4& b) {
-    return a == b.IntValue();
-  }
-  friend constexpr bool operator!=(int64_t a, const i4& b) {
-    return a != b.IntValue();
-  }
-  friend constexpr bool operator<(int64_t a, const i4& b) {
-    return a < b.IntValue();
-  }
-  friend constexpr bool operator>(int64_t a, const i4& b) {
-    return a > b.IntValue();
-  }
-  friend constexpr bool operator<=(int64_t a, const i4& b) {
-    return a <= b.IntValue();
-  }
-  friend constexpr bool operator>=(int64_t a, const i4& b) {
-    return a >= b.IntValue();
-  }
-
-  constexpr i4& operator++() {
-    v_ = Mask(v_ + 1);
-    return *this;
-  }
-
-  constexpr i4 operator++(int) {
-    i4 orig = *this;
-    this->operator++();
-    return orig;
-  }
-
-  constexpr i4& operator--() {
-    v_ = Mask(v_ - 1);
-    return *this;
-  }
-
-  constexpr i4 operator--(int) {
-    i4 orig = *this;
-    this->operator--();
-    return orig;
-  }
-
-  constexpr i4& operator+=(const i4& other) {
-    *this = *this + other;
-    return *this;
-  }
-  constexpr i4& operator-=(const i4& other) {
-    *this = *this - other;
-    return *this;
-  }
-  constexpr i4& operator*=(const i4& other) {
-    *this = *this * other;
-    return *this;
-  }
-  constexpr i4& operator/=(const i4& other) {
-    *this = *this / other;
-    return *this;
-  }
-  constexpr i4& operator%=(const i4& other) {
-    *this = *this % other;
-    return *this;
-  }
-  constexpr i4& operator&=(const i4& other) {
-    *this = *this & other;
-    return *this;
-  }
-  constexpr i4& operator|=(const i4& other) {
-    *this = *this | other;
-    return *this;
-  }
-  constexpr i4& operator^=(const i4& other) {
-    *this = *this ^ other;
-    return *this;
-  }
-  constexpr i4& operator>>=(int amount) {
-    *this = *this >> amount;
-    return *this;
-  }
-  constexpr i4& operator<<=(int amount) {
-    *this = *this << amount;
-    return *this;
-  }
-
-  friend ::std::ostream& operator<<(::std::ostream& os, const i4& num) {
-    os << static_cast<int16_t>(num);
+  /* --------------- misc --------------- */
+  friend std::ostream& operator<<(std::ostream& os, const i_n& x) {
+    os << static_cast<int64_t>(x.int_value());
     return os;
   }
-
   std::string ToString() const {
-    std::ostringstream os;
-    os << static_cast<int16_t>(*this);
-    return os.str();
+    std::ostringstream ss; ss << *this; return ss.str();
   }
-};
+}; // class i_n
 
-using int4 = i4<int8_t>;
-using uint4 = i4<uint8_t>;
+/* -------------------- convenience aliases -------------------- */
+template<int LEN> using  int_n = i_n<LEN, true>;
+template<int LEN> using uint_n = i_n<LEN, false>;
 
+using  int4 = int_n<4>;
+using uint4 = uint_n<4>;
+using  int8 = int_n<8>;
+using uint8 = uint_n<8>;              // … and so on
+
+/* =============================================================== *
+ *          numeric_limits specialisation (partial)                *
+ * =============================================================== */
 namespace internal {
+template<int LEN, bool Signed>
+struct intn_numeric_limits_base {
+  static constexpr bool is_specialized = true;
+  static constexpr bool is_signed      = Signed;
+  static constexpr bool is_integer     = true;
+  static constexpr bool is_exact       = true;
+  static constexpr bool has_infinity   = false;
+  static constexpr bool has_quiet_NaN  = false;
+  static constexpr bool has_signaling_NaN = false;
+  static constexpr std::float_denorm_style has_denorm = std::denorm_absent;
+  static constexpr bool has_denorm_loss = false;
+  static constexpr std::float_round_style round_style = std::round_toward_zero;
+  static constexpr bool is_iec559 = false;
+  static constexpr bool is_bounded = true;
+  static constexpr bool is_modulo  = !Signed;
+  static constexpr int  radix = 2;
+  static constexpr int  digits    = Signed ? (LEN - 1) : LEN;
+  static constexpr int  digits10  = 0;
+  static constexpr int  max_digits10 = 0;
+  static constexpr int  min_exponent = 0, min_exponent10 = 0;
+  static constexpr int  max_exponent = 0, max_exponent10 = 0;
+  static constexpr bool traps = true;
+  static constexpr bool tinyness_before = false;
 
-struct int4_numeric_limits_base {
-  static inline constexpr const bool is_specialized = true;
-  static inline constexpr const bool is_integer = true;
-  static inline constexpr const bool is_exact = true;
-  static inline constexpr const bool has_infinity = false;
-  static inline constexpr const bool has_quiet_NaN = false;
-  static inline constexpr const bool has_signaling_NaN = false;
-  static inline constexpr const std::float_denorm_style has_denorm =
-      std::denorm_absent;
-  static inline constexpr const bool has_denorm_loss = false;
-  static inline constexpr const std::float_round_style round_style =
-      std::round_toward_zero;
-  static inline constexpr const bool is_iec559 = false;
-  static inline constexpr const bool is_bounded = true;
-  static inline constexpr const int max_digits10 = 0;  // Not used for integers.
-  static inline constexpr const int radix = 2;
-  static inline constexpr const int min_exponent = 0;
-  static inline constexpr const int min_exponent10 = 0;
-  static inline constexpr const int max_exponent = 0;
-  static inline constexpr const int max_exponent10 = 0;
-  static inline constexpr const bool traps = true;
-  static inline constexpr const bool tinyness_before = false;
-
-  static constexpr ml_dtypes::int4 epsilon() noexcept {
-    return ml_dtypes::int4(0);
-  }
-  static constexpr ml_dtypes::int4 round_error() noexcept {
-    return ml_dtypes::int4(0);
-  }
-  static constexpr ml_dtypes::int4 infinity() noexcept {
-    return ml_dtypes::int4(0);
-  }
-  static constexpr ml_dtypes::int4 quiet_NaN() noexcept {
-    return ml_dtypes::int4(0);
-  }
-  static constexpr ml_dtypes::int4 signaling_NaN() noexcept {
-    return ml_dtypes::int4(0);
-  }
-  static constexpr ml_dtypes::int4 denorm_min() noexcept {
-    return ml_dtypes::int4(0);
-  }
+  static constexpr i_n<LEN, Signed> min()      noexcept { return i_n<LEN, Signed>::lowest(); }
+  static constexpr i_n<LEN, Signed> lowest()   noexcept { return i_n<LEN, Signed>::lowest(); }
+  static constexpr i_n<LEN, Signed> max()      noexcept { return i_n<LEN, Signed>::highest(); }
+  static constexpr i_n<LEN, Signed> epsilon()  noexcept { return i_n<LEN, Signed>(0); }
+  static constexpr i_n<LEN, Signed> round_error() noexcept { return i_n<LEN, Signed>(0); }
+  static constexpr i_n<LEN, Signed> infinity() noexcept { return i_n<LEN, Signed>(0); }
+  static constexpr i_n<LEN, Signed> quiet_NaN() noexcept { return i_n<LEN, Signed>(0); }
+  static constexpr i_n<LEN, Signed> signaling_NaN() noexcept { return i_n<LEN, Signed>(0); }
+  static constexpr i_n<LEN, Signed> denorm_min() noexcept { return i_n<LEN, Signed>(0); }
 };
+} // namespace internal
+} // namespace lo_float
 
-}  // namespace internal
-
-}  // namespace ml_dtypes
-
+/* -------- std::numeric_limits specialisations (all LEN) -------- */
 namespace std {
+template<int LEN, bool Signed>
+struct numeric_limits<lo_float::i_n<LEN, Signed>>
+    : public lo_float::internal::intn_numeric_limits_base<LEN, Signed> {};
+} // namespace std
 
-template <>
-struct numeric_limits<ml_dtypes::int4>
-    : public ml_dtypes::internal::int4_numeric_limits_base {
-  static inline constexpr const bool is_signed = true;
-  static inline constexpr const bool is_modulo = false;
-  static inline constexpr const int digits = 3;
-  static inline constexpr const int digits10 = 0;  // floor(3 * log10(2))
-  static constexpr ml_dtypes::int4 min() noexcept {
-    return ml_dtypes::int4::lowest();
-  }
-  static constexpr ml_dtypes::int4 lowest() noexcept {
-    return ml_dtypes::int4::lowest();
-  }
-  static constexpr ml_dtypes::int4 max() noexcept {
-    return ml_dtypes::int4::highest();
-  }
-};
-
-template <>
-struct numeric_limits<ml_dtypes::uint4>
-    : public ml_dtypes::internal::int4_numeric_limits_base {
-  static inline constexpr const bool is_signed = false;
-  static inline constexpr const bool is_modulo = true;
-  static inline constexpr const int digits = 4;
-  static inline constexpr const int digits10 = 1;  // floor(4 * log10(2))
-  static constexpr ml_dtypes::uint4 min() noexcept {
-    return ml_dtypes::uint4::lowest();
-  }
-  static constexpr ml_dtypes::uint4 lowest() noexcept {
-    return ml_dtypes::uint4::lowest();
-  }
-  static constexpr ml_dtypes::uint4 max() noexcept {
-    return ml_dtypes::uint4::highest();
-  }
-};
-
-}  // namespace std
-
-#endif  // ML_DTYPES_INT4_H_
+#endif /* LO_FLOAT_INTN_H_ */

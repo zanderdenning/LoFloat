@@ -38,4 +38,7 @@ ULTRA_LOW:
 ROUNDING_MODES:
 	$(CXX) $(CXXFLAGS)  $(INCLUDE_PATH) test_rounding_modes.cpp -o test_rounding_modes
 
+SMALL:
+	$(CXX) $(CXXFLAGS)  $(INCLUDE_PATH) small_rounding_test.cpp -o test_small
+
 ALL: LO_FLOAT LO_INT EXPECTATION PROBABILITY EXCEPTIONS UNSIGNED ULTRA_LOW ROUNDING_MODES
