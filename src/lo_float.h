@@ -472,7 +472,7 @@ namespace lo_float_internal {
 
     //define FloatingPointParams for float8e4m3_fn
     struct OCP_F8E4M3_NaNChecker {
-        bool operator()(uint32_t bits) {
+        bool operator()(uint32_t bits) const {
             return bits == 0x000000FF;
         }
 
@@ -576,7 +576,7 @@ namespace lo_float_internal {
 
     //NaNChecker for float8e5m2
     struct OCP_F8E5M2_NaNChecker {
-        bool operator()(uint32_t bits) {
+        bool operator()(uint32_t bits) const {
             return bits == 0x000000FF || bits == 0x000000FE || bits == 0x000000FD;
         }
 
